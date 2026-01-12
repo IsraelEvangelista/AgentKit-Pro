@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_serena_serena__list_dir",
+      "mcp__plugin_serena_serena__activate_project",
+      "Bash(npm install)",
+      "Bash(npm run dev)",
+      "mcp__plugin_supabase_supabase__search_docs",
+      "Bash(npm install:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(xargs:*)",
+      "mcp__web-search-prime__webSearchPrime",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__get-library-docs",
+      "Bash(curl -X GET \"https://skillsmp.com/api/v1/skills/ai-search?q=data\" -H \"Authorization: Bearer sk_live_skillsmp_KtbFxfx8WALgmWb8bfy8cpholKQRWdr7IV6vgj_WgnQ\" -v)"
+    ]
+  }
+}

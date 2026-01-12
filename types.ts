@@ -1,0 +1,72 @@
+export interface User {
+  id: string;
+  email: string;
+  role: 'operator' | 'admin';
+  avatar?: string;
+}
+
+export enum SkillStatus {
+  ACTIVE = 'Operational',
+  PAUSED = 'Paused',
+  COMPLETED = 'Archived',
+  PENDING = 'Analyzing'
+}
+
+export interface Skill {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  level: string;
+  tags: string[];
+  url?: string;
+  storageUrl?: string; // Path to the original zip (optional now)
+  status: SkillStatus;
+  dateAdded: string;
+  user_id?: string;
+  stars?: number;
+  forks?: number;
+  remote_updated_at?: string;
+}
+
+export interface SkillFile {
+  id: string;
+  skill_id: string;
+  filename: string;
+  file_path: string;
+  storage_path: string;
+  size_bytes: number;
+  content_type: string;
+  created_at: string;
+}
+
+export interface ScrapeResult {
+  title: string;
+  slug?: string;
+  description: string;
+  sourceUrl?: string; // Original URL (e.g. GitHub tree view)
+  downloadUrl: string; // Zip download URL
+  tags: string[];
+  latency: number;
+  stars?: number;
+  forks?: number;
+  updatedAt?: string;
+  content?: string;
+}
+
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+export interface SkillsmpSearchResult {
+    id: string;
+    title: string;
+    description: string;
+    tags: string[];
+    download_url?: string;
+    metadata?: Record<string, any>;
+}
+

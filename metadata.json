@@ -1,0 +1,5 @@
+{
+  "name": "SkillMP Protocol",
+  "description": "A cyberpunk-styled skill cataloging system integrating web scraping simulation and Supabase storage management.",
+  "requestFramePermissions": []
+}
