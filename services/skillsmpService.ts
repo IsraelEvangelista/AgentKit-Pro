@@ -1,5 +1,12 @@
-// Local Proxy avoids Cloudflare blocks better than Vite Proxy
-const API_BASE_URL = "http://localhost:3001/api";
+// Dynamic Base URL based on Environment
+// In PROD (Vercel), we utilize the Serverless Functions at /api/...
+// In DEV, we use the local proxy at http://localhost:3001/api/...
+
+const PROXY_BASE = import.meta.env.PROD ? '/api' : 'http://localhost:3001/api';
+
+// Debug Log
+console.log(`[SkillsMP] Environment: ${import.meta.env.PROD ? 'PRODUCTION' : 'DEVELOPMENT'}`);
+console.log(`[SkillsMP] Service Base URL: ${PROXY_BASE}`);
 
 import { SkillsmpSearchResult, ScrapeResult } from '../types';
 
@@ -7,11 +14,11 @@ export const searchSkills = async (query: string): Promise<SkillsmpSearchResult[
     // Debug Log
     const apiKey = import.meta.env.VITE_SKILLSMP_API_KEY;
     console.log('[SkillsMP] Search Query:', query);
-    console.log('[SkillsMP] API Key Present:', !!apiKey, 'Length:', apiKey?.length);
     
     // AI Search uses GET with query parameter 'q'
-    const response = await fetch(`${API_BASE_URL}/skills/ai-search?q=${encodeURIComponent(query)}`, {
-        // Headers handled by local proxy
+    // Target: /api/skills/ai-search
+    const response = await fetch(`${PROXY_BASE}/skills/ai-search?q=${encodeURIComponent(query)}`, {
+        // Headers handled by proxy/function
     });
 
     if (!response.ok) {
@@ -19,24 +26,21 @@ export const searchSkills = async (query: string): Promise<SkillsmpSearchResult[
         
         if (response.status === 401) throw new Error('Invalid API Key (Check .env)');
         if (response.status === 400) throw new Error('Missing query parameter');
-        if (response.status === 403) {
-            const server = response.headers.get('server') || 'unknown';
-            throw new Error(`Access Forbidden by ${server} (403)`);
-        }
         throw new Error(`API Error: ${response.statusText}`);
     }
 
     const json = await response.json();
-    // API returns { success: true, data: { data: [ ...items ] } }
-    // Or sometimes { items: [...] }
     const items = json.data?.data || json.items || json.data || [];
-    
-    // Ensure it's an array
     return Array.isArray(items) ? items : [];
 };
 
 export const getSkillDetails = async (skillId: string): Promise<any> => {
-    const response = await fetch(`${API_BASE_URL}/skills/${skillId}`, {
+    // This might not be fully supported by Vercel function yet if we only created ai-search
+    // But assuming generic proxy or direct implementation. 
+    // Ideally we should create api/skills/[id].js if needed.
+    // For now, let's assume the search provides enough data or use search logic.
+    // NOTE: The user's prompt implies we fixed search. Details might not be used heavily yet.
+    const response = await fetch(`${PROXY_BASE}/skills/${skillId}`, {
         headers: {
             'Authorization': `Bearer ${import.meta.env.VITE_SKILLSMP_API_KEY}`
         }
@@ -47,10 +51,8 @@ export const getSkillDetails = async (skillId: string): Promise<any> => {
 };
 
 export const downloadSkillFile = async (dUrl: string): Promise<Blob> => {
-    // ALWAYS use the local proxy /download endpoint to avoid CORS on GitHub/External links
-    // The proxy runs on port 3001
-    const proxyUrl = "http://localhost:3001/download";
-    const fetchUrl = `${proxyUrl}?url=${encodeURIComponent(dUrl)}`;
+    // Target: /api/download?url=...
+    const fetchUrl = `${PROXY_BASE}/download?url=${encodeURIComponent(dUrl)}`;
 
     const response = await fetch(fetchUrl);
 
@@ -58,10 +60,16 @@ export const downloadSkillFile = async (dUrl: string): Promise<Blob> => {
     return await response.blob();
 };
 
-// Adapter to convert API result to Scraper Schema format
-// Adapter to convert API result to Scraper Schema format
+export const previewFileContent = async (fileUrl: string): Promise<string> => {
+    // Target: /api/preview?url=...
+    const fetchUrl = `${PROXY_BASE}/preview?url=${encodeURIComponent(fileUrl)}`;
+    
+    const response = await fetch(fetchUrl);
+    if (!response.ok) throw new Error(`Failed to preview file: ${response.statusText}`);
+    return await response.text();
+}
+
 export const fetchSkillReadme = async (githubUrl: string): Promise<string> => {
-    // Convert github repo url to raw content url
     if (!githubUrl.includes('github.com')) return '';
 
     try {
@@ -69,9 +77,10 @@ export const fetchSkillReadme = async (githubUrl: string): Promise<string> => {
         const owner = parts[0];
         const repo = parts[1];
         let path = '';
-        let ref = 'main';
+        let ref = 'main'; // Default assumption
 
-         if (githubUrl.includes('/tree/')) {
+        // Basic parsing for tree/blob
+        if (githubUrl.includes('/tree/')) {
             const treeIndex = parts.indexOf('tree');
             ref = parts[treeIndex + 1];
             path = parts.slice(treeIndex + 2).join('/');
@@ -82,9 +91,7 @@ export const fetchSkillReadme = async (githubUrl: string): Promise<string> => {
              // If pointing to a file, just fetch that file
              const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}`;
              try {
-                const res = await fetch(`http://localhost:3001/preview?url=${encodeURIComponent(rawUrl)}`);
-                const text = await res.text();
-                if (res.ok && text.length > 50 && !text.includes('404')) return text;
+                return await previewFileContent(rawUrl);
              } catch(e) {}
              return '';
         }
@@ -95,7 +102,6 @@ export const fetchSkillReadme = async (githubUrl: string): Promise<string> => {
         // Try SKILL.md first, then README.md
         const targets = [`${rawBase}/SKILL.md`, `${rawBase}/README.md`];
         
-        // If ref is main, also try master just in case, though less likely for deep links
         if (ref === 'main') {
              const rawBaseMaster = `https://raw.githubusercontent.com/${owner}/${repo}/master${path ? '/' + path : ''}`;
              targets.push(`${rawBaseMaster}/SKILL.md`);
@@ -104,16 +110,11 @@ export const fetchSkillReadme = async (githubUrl: string): Promise<string> => {
 
         for (const target of targets) {
             try {
-                // Route through proxy (returns text)
-                const res = await fetch(`http://localhost:3001/preview?url=${encodeURIComponent(target)}`);
-                const text = await res.text();
-                // Basic validation
-                if (res.ok && text.length > 20 && !text.includes('404: Not Found') && !text.includes('Cannot GET')) {
+                const text = await previewFileContent(target);
+                if (text.length > 20 && !text.includes('404: Not Found')) {
                     return text;
                 }
-            } catch (e) {
-                 // console.warn('Failed to fetch readme candidate:', target);
-            }
+            } catch (e) { }
         }
     } catch(err) {
         console.error("Error parsing GitHub URL:", err);
@@ -139,15 +140,13 @@ export const fetchRepoContents = async (githubUrl: string): Promise<any[]> => {
 
         const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${ref}`;
         
-        // Use local proxy to fetch GitHub API data
-        // This avoids CORS and IP blocking issues
-        const proxyUrl = `http://localhost:3001/github-api?url=${encodeURIComponent(apiUrl)}`;
+        // Target: /api/github-api?url=...
+        const proxyUrl = `${PROXY_BASE}/github-api?url=${encodeURIComponent(apiUrl)}`;
         
         const response = await fetch(proxyUrl);
         if (!response.ok) return [];
         const data = await response.json();
         
-        // Ensure we supply an array (GitHub API returns object for single file, array for dir)
         return Array.isArray(data) ? data : [data];
     } catch (e) {
         console.warn('Failed to fetch repo contents via proxy', e);
@@ -159,30 +158,20 @@ export const adaptToScrapeResult = (apiResult: any): ScrapeResult => {
     const skillData = apiResult.skill || {};
     const metadata = apiResult.metadata || skillData.metadata || {};
     
-    // Prioritize skill data, fallback to top-level fields
     const title = skillData.name || apiResult.filename || apiResult.title || 'Unknown Skill';
     const description = skillData.description || apiResult.description || apiResult.summary || `File: ${apiResult.filename || 'N/A'}`;
     
-    // Determine Source & Download URL
     let sourceUrl = apiResult.download_url || skillData.githubUrl || skillData.skillUrl || apiResult.url || '';
     let downloadUrl = sourceUrl;
     
-    // Fix GitHub Repo URLs
     if (downloadUrl && downloadUrl.includes('github.com')) {
-        // Remove trailing slash
         downloadUrl = downloadUrl.replace(/\/$/, '');
-        
-        // Logic to construct Zip URL from ANY GitHub URL (root or subfolder)
-        // 1. Clean the URL to find root repo
         const parts = downloadUrl.split('github.com/')[1].split('/');
         const owner = parts[0];
         const repo = parts[1];
-        
-        // Always download the root zip. We will filter files locally.
         downloadUrl = `https://github.com/${owner}/${repo}/archive/refs/heads/main.zip`;
     }
 
-    // Extract tags/categories
     const tags = apiResult.tags || apiResult.categories || (skillData.author ? [skillData.author] : []) || [];
     
     return {

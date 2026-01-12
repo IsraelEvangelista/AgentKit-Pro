@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Globe, Terminal, Loader2, Link2, UploadCloud, X, Wifi, List, Edit2, Check, Star, GitFork, ExternalLink, Folder, FileText } from 'lucide-react';
-import { searchSkills, downloadSkillFile, adaptToScrapeResult, fetchSkillReadme, fetchRepoContents, getSkillDetails } from '../services/skillsmpService';
+import { searchSkills, downloadSkillFile, adaptToScrapeResult, fetchSkillReadme, fetchRepoContents, getSkillDetails, previewFileContent } from '../services/skillsmpService';
 import { saveSkillToDb, saveSkillFileRecord, uploadSkillFile, uploadSkillFileRaw } from '../services/skillsService';
 import { ScrapeResult, LogEntry, SkillStatus } from '../types';
 import JSZip from 'jszip'; // Make sure this is installed
@@ -170,8 +170,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
           // If using download_url from GitHub API directly:
           if (file.download_url) {
                // Must route through proxy to display text
-               const res = await fetch(`http://localhost:3001/preview?url=${encodeURIComponent(file.download_url)}`);
-               const text = await res.text();
+               const text = await previewFileContent(file.download_url);
                setPreviewContent(`FILE: ${file.name}\n\n${text}`);
           }
       } catch (e) {

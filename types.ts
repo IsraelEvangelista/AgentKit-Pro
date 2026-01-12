@@ -55,7 +55,7 @@ export interface ScrapeResult {
 }
 
 export interface LogEntry {
-  id: number;
+  id: string | number;
   timestamp: string;
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';

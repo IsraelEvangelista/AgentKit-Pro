@@ -124,21 +124,20 @@
 - **Objetivo:** Permitir busca, preview e importação de skills diretamente do SkillsMP.com.
 - **Componentes Chave:**
   - `ScraperPage.tsx`: Interface principal (Busca, Logs, File Explorer, Import).
-  - `skillsmpService.ts`: Cliente da API pública (`/v1/skills/ai-search`).
-  - `skillsmp-proxy.js`: Proxy Node.js local para contornar CORS/WAF e fazer download de zips.
-  - `skillsService.ts`: Integração com Supabase (DB + Storage).
+  - `skillsmpService.ts`: Cliente da API pública (URL Dinâmica: `/api/*` em Prod, `localhost:3001/api/*` em Dev).
+  - `skillsmp-proxy.js`: Proxy Node.js local (Porta 3001) compatível com rotas Vercel.
+  - `/api/*`: Vercel Serverless Functions para produção.
 
-- **Fluxo de Dados:**
-  1. Busca na API SkillsMP (client-side) -> Retorna JSON.
-  2. Preview de Arquivos (via Proxy) -> `http://localhost:3001/preview?url=...`.
-  3. Download (via Proxy) -> `http://localhost:3001/download?url=...` -> Blob.
-  4. Extração Local (JSZip) -> Filtra arquivos relevantes (suporta subpastas).
-  5. Upload para Supabase Storage -> Salva arquivos individuais.
-  6. Registro no Banco -> Tabela `skills` e `skill_files`.
+- **Fluxo de Dados (Unhificado):**
+  1. Frontend chama rotas `/api/...`.
+  2. Em Dev: Proxy Local atende em `http://localhost:3001/api/...`.
+  3. Em Prod: Vercel Functions atendem em `/api/...`.
 
-- **Requisitos de Banco de Dados (Supabase):**
-  - Tabela `skills` deve ter colunas: `url`, `storage_path`, `stars`, `forks`, `remote_updated_at`.
-  - Tabela `skill_files` par armazenar metadados dos arquivos.
+- **Endpoints Suportados:**
+  - `/api/skills/ai-search`: Busca
+  - `/api/download`: Download de Zips
+  - `/api/preview`: Leitura de Texto
+  - `/api/github-api`: Proxy GitHub
 
 ## Regras de Engajamento
 
