@@ -6,6 +6,25 @@ BEGIN
     END IF;
 END $$;
 
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'skills' AND column_name = 'source_url') THEN
+        ALTER TABLE public.skills ADD COLUMN source_url TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'skills' AND column_name = 'storage_path') THEN
+        ALTER TABLE public.skills ADD COLUMN storage_path TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'skills' AND column_name = 'stars') THEN
+        ALTER TABLE public.skills ADD COLUMN stars INT DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'skills' AND column_name = 'forks') THEN
+        ALTER TABLE public.skills ADD COLUMN forks INT DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'skills' AND column_name = 'remote_updated_at') THEN
+        ALTER TABLE public.skills ADD COLUMN remote_updated_at TIMESTAMPTZ;
+    END IF;
+END $$;
+
 -- Verify profiles table exists (Redundancy check)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,

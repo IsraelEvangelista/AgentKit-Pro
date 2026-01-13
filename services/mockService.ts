@@ -12,9 +12,7 @@ let MOCK_SKILLS: Skill[] = [
     dateAdded: '2023-10-12',
     level: 'Senior',
     status: SkillStatus.PENDING,
-    tags: ['React', 'Hooks', 'Architecture'],
-    size: '1.2 GB',
-    rating: 4.8
+    tags: ['React', 'Hooks', 'Architecture']
   },
   {
     id: 'sk-9921',
@@ -26,9 +24,7 @@ let MOCK_SKILLS: Skill[] = [
     dateAdded: '2023-09-01',
     level: 'Expert',
     status: SkillStatus.PAUSED,
-    tags: ['SQL', 'Database', 'Performance'],
-    size: '850 MB',
-    rating: 4.9
+    tags: ['SQL', 'Database', 'Performance']
   },
   {
     id: 'sk-1029',
@@ -40,9 +36,7 @@ let MOCK_SKILLS: Skill[] = [
     dateAdded: '2023-08-25',
     level: 'Pleno',
     status: SkillStatus.COMPLETED,
-    tags: ['Figma', 'Prototyping', 'Theory'],
-    size: '2.4 GB',
-    rating: 4.5
+    tags: ['Figma', 'Prototyping', 'Theory']
   }
 ];
 
@@ -108,9 +102,7 @@ export const saveSkillToSupabase = async (scrapeResult: ScrapeResult, category: 
         dateAdded: new Date().toISOString().split('T')[0],
         level: 'Pleno',
         status: SkillStatus.ACTIVE,
-        tags: scrapeResult.tags,
-        size: '500 MB',
-        rating: 0
+        tags: scrapeResult.tags
     };
 
     MOCK_SKILLS.unshift(newSkill); // Add to local store

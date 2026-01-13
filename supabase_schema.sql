@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS skills (
   tags TEXT[],
   level TEXT,
   status TEXT DEFAULT 'active',
+  stars INT DEFAULT 0,
+  forks INT DEFAULT 0,
+  remote_updated_at TIMESTAMPTZ,
   metadata JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

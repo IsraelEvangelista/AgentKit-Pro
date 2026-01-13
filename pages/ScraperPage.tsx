@@ -1,23 +1,49 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Globe, Terminal, Loader2, Link2, UploadCloud, X, Wifi, List, Edit2, Check, Star, GitFork, ExternalLink, Folder, FileText } from 'lucide-react';
+import { Globe, Terminal, Loader2, Link2, UploadCloud, X, Wifi, List, Edit2, Check, Star, GitFork, ExternalLink, Folder, FileText, Clock } from 'lucide-react';
 import { searchSkills, downloadSkillFile, adaptToScrapeResult, fetchSkillReadme, fetchRepoContents, getSkillDetails, previewFileContent } from '../services/skillsmpService';
-import { saveSkillToDb, saveSkillFileRecord, uploadSkillFile, uploadSkillFileRaw } from '../services/skillsService';
-import { ScrapeResult, LogEntry, SkillStatus } from '../types';
+import { saveSkillToDb, saveSkillFileRecordsBulk, updateSkillStoragePath, uploadSkillFileRaw } from '../services/skillsService';
+import { ScrapeResult, LogEntry, SkillStatus, User } from '../types';
+import { supabase } from '../services/supabaseClient';
 import JSZip from 'jszip'; // Make sure this is installed
 import ReactMarkdown from 'react-markdown'; // Assuming installed, or just text for now? Text for now to be safe.
 
 interface ScraperPageProps {
   onNavigate: (page: string) => void;
+  user?: User | null;
 }
 
-const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
+type RepoNodeType = 'file' | 'dir';
+
+interface RepoNode {
+  type: RepoNodeType;
+  name: string;
+  path?: string;
+  size?: number;
+  download_url?: string;
+}
+
+interface SearchResultItem {
+  title?: string;
+  filename?: string;
+  skill?: { name?: string; stars?: number; forks?: number };
+  metadata?: { stars?: number; forks?: number };
+  [key: string]: unknown;
+}
+
+const isRepoNode = (value: unknown): value is RepoNode => {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (v.type === 'file' || v.type === 'dir') && typeof v.name === 'string';
+};
+
+const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
   const [url, setUrl] = useState('');
   const [isScraping, setIsScraping] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
   // State for multiple results and selection
-  const [searchResults, setSearchResults] = useState<any[]>([]); 
-  const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<SearchResultItem | null>(null);
   const [adaptedResult, setAdaptedResult] = useState<ScrapeResult | null>(null);
 
   // Editable Tags
@@ -30,7 +56,11 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
 
   const [previewContent, setPreviewContent] = useState<string>('');
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [repoFiles, setRepoFiles] = useState<any[]>([]);
+  const [repoFiles, setRepoFiles] = useState<RepoNode[]>([]);
+  
+  // User greeting and clock
+  const [userName, setUserName] = useState<string>('User');
+  const [currentDateTime, setCurrentDateTime] = useState<Date>(new Date());
 
   // Auto scroll logs
   useEffect(() => {
@@ -45,6 +75,52 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
           setEditableTags(adaptedResult.tags);
       }
   }, [adaptedResult]);
+
+  // Fetch user name from Supabase
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // Try to get user metadata name, fallback to email
+          const name = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+          setUserName(name);
+        }
+      } catch (error) {
+        console.error('Error fetching user:', error);
+      }
+    };
+    
+    fetchUser();
+  }, []);
+
+  // Update clock every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Get greeting based on time of day
+  const getGreeting = (): string => {
+    const hour = currentDateTime.getHours();
+    if (hour >= 6 && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'afternoon';
+    return 'night';
+  };
+
+  // Format date and time
+  const formatDateTime = (): string => {
+    const day = String(currentDateTime.getDate()).padStart(2, '0');
+    const month = String(currentDateTime.getMonth() + 1).padStart(2, '0');
+    const year = currentDateTime.getFullYear();
+    const hours = String(currentDateTime.getHours()).padStart(2, '0');
+    const minutes = String(currentDateTime.getMinutes()).padStart(2, '0');
+    const seconds = String(currentDateTime.getSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+  };
 
   const generateLogId = () => {
       logIdCounter.current += 1;
@@ -86,17 +162,18 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
         
         // Sort by Stars (Desc) then by Latency (Asc)
         const sortedItems = items.sort((a, b) => {
-             const starsA = a.metadata?.stars || a.skill?.stars || 0;
-             const starsB = b.metadata?.stars || b.skill?.stars || 0;
+             const starsA = (a.metadata?.stars as number) || 0;
+             const starsB = (b.metadata?.stars as number) || 0;
              return starsB - starsA;
         });
 
-        setSearchResults(sortedItems); 
+        setSearchResults(sortedItems as unknown as SearchResultItem[]); 
         
         addLog('Please select a skill from the list below to proceed.');
 
-    } catch (error: any) {
-        addLog(`Error: ${error.message}`, 'error');
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        addLog(`Error: ${message}`, 'error');
         console.error(error);
     } finally {
         setIsScraping(false);
@@ -104,7 +181,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
   };
 
   // When selecting a result, try to fetch README
-  const handleSelectResult = async (item: any) => {
+  const handleSelectResult = async (item: SearchResultItem) => {
       const name = item.skill?.name || item.filename || item.title || 'Unknown';
       addLog(`Selected: ${name}`, 'success');
       setSelectedItem(item);
@@ -129,7 +206,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
          try {
              // Only try details if we suspect missing content
              // const details = await getSkillDetails(adapted.slug); // Optional optimization
-         } catch(e) {}
+         } catch {}
       }
 
       if (adapted.sourceUrl && adapted.sourceUrl.includes('github.com')) {
@@ -142,14 +219,15 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
                  setPreviewContent(readme);
                  contentFound = true;
              }
-          } catch (e) {}
+          } catch {}
           
           // 3. Fallback to File Explorer
           if (!contentFound) {
               try {
                   const files = await fetchRepoContents(rawLink);
                   if (Array.isArray(files) && files.length > 0) {
-                      setRepoFiles(files);
+                      const nodes = files.filter(isRepoNode);
+                      setRepoFiles(nodes);
                   } else {
                       setPreviewContent('No content or files available to preview.');
                   }
@@ -162,7 +240,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
       setLoadingPreview(false);
   };
   
-  const handleFileClick = async (file: any) => {
+  const handleFileClick = async (file: RepoNode) => {
       if (file.type !== 'file') return;
       setLoadingPreview(true);
       try {
@@ -196,6 +274,13 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
     addLog('Starting import process...', 'info');
 
     try {
+        let userId = user?.id;
+        if (!userId) {
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          userId = authUser?.id;
+        }
+        if (!userId) throw new Error('User not authenticated');
+
         // 1. Download File
         if (!adaptedResult.downloadUrl) throw new Error('No download URL available');
         
@@ -204,8 +289,9 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
         let blob;
         try {
             blob = await downloadSkillFile(adaptedResult.downloadUrl);
-        } catch (err: any) {
-            addLog(`Download network error: ${err.message}`, 'error');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Unknown error';
+            addLog(`Download network error: ${message}`, 'error');
             throw err;
         }
 
@@ -220,8 +306,9 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
         let zip;
         try {
             zip = await JSZip.loadAsync(blob);
-        } catch (err: any) {
-             addLog(`Zip extraction failed: ${err.message}`, 'error');
+        } catch (err: unknown) {
+             const message = err instanceof Error ? err.message : 'Unknown error';
+             addLog(`Zip extraction failed: ${message}`, 'error');
              throw new Error("Failed to unzip file. It might not be a valid zip archive.");
         }
 
@@ -242,47 +329,13 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
 
         addLog(`Targeting subfolder: ${targetSubfolder || 'ROOT'}`);
 
-        // Loop manual to get contents
-        // Zip structure usually starts with "repo-name-branch/"
-        const entries = Object.keys(zip.files).filter(name => {
-            const isDir = zip.files[name].dir;
-            const isSystem = name.includes('node_modules') || name.includes('.git');
-            
-            if (isDir || isSystem) return false;
-
-            // Filter by subfolder if needed
-            if (targetSubfolder) {
-                // Check if file path includes the subfolder path
-                // Note: Zip root folder name is variable (e.g. claude-code-templates-main/). 
-                // We check if the path *segments* match.
-                return name.includes(targetSubfolder); 
-            }
-            
-            return true;
-        });
-        
-        if (entries.length === 0) {
-            addLog('Zip opened but no valid files found (checked filters).', 'warning');
-        } else {
-            addLog(`Found ${entries.length} valid files to process.`);
-        }
-
-        // 3. Register Skill FIRST to get ID
         addLog('Registering skill in Database...');
-        // We use a temporary storage URL or update it later? 
-        // Let's set storageUrl to the root folder path we will use.
-        const skillSlug = adaptedResult.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        
-        // Use a fixed User ID for Dev
-        const userId = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'; 
-        const storageRoot = `${userId}/${skillSlug}`;
-
         const savedSkill = await saveSkillToDb({
             title: adaptedResult.title,
             description: adaptedResult.description,
-            category: 'Imported',
-            url: url,
-            storageUrl: storageRoot, // Point to the virtual folder
+            category: adaptedResult.category || 'Uncategorized',
+            url: adaptedResult.sourceUrl || adaptedResult.downloadUrl || url,
+            storageUrl: undefined,
             level: 'Pleno',
             status: SkillStatus.ACTIVE,
             tags: editableTags,
@@ -294,48 +347,153 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
         if (!savedSkill) throw new Error("Failed to save skill to DB");
         const skillId = savedSkill.id;
 
-        // 4. Upload Files & Register Records
-        // Upload sequentially to track progress and avoid rate limits
-        let completed = 0;
-        for (const filename of entries) {
-             const fileEntry = zip.files[filename];
-             const content = await fileEntry.async('blob');
-             
-             // Content Type detection (basic)
-             let contentType = 'application/octet-stream';
-             if (filename.endsWith('.js')) contentType = 'application/javascript';
-             if (filename.endsWith('.json')) contentType = 'application/json';
-             if (filename.endsWith('.md')) contentType = 'text/markdown';
-             if (filename.endsWith('.py')) contentType = 'text/x-python';
+        const zipStoragePath = `${userId}/${skillId}/skill.zip`;
+        addLog(`Uploading ZIP (${blob.size}b)...`);
+        const uploadedZipPath = await uploadSkillFileRaw(blob, zipStoragePath);
+        if (!uploadedZipPath) throw new Error('Failed to upload ZIP to Storage');
 
-             // Upload to Storage
-             // Path: userId/skillSlug/filename (preserving folder structure)
-             const storagePath = `${storageRoot}/${filename}`;
-             addLog(`Uploading: ${filename} (${content.size}b)`);
-             
-             // Use Raw upload to keep clean structure
-             const uploadedPath = await uploadSkillFileRaw(content, storagePath); 
+        await updateSkillStoragePath(skillId, uploadedZipPath);
 
-             if (uploadedPath) {
-                 await saveSkillFileRecord({
-                     skill_id: skillId,
-                     filename: filename.split('/').pop() || filename,
-                     file_path: filename,
-                     storage_path: uploadedPath,
-                     size_bytes: content.size,
-                     content_type: contentType
-                 });
-             }
-             
-             completed++;
-             if (completed % 5 === 0) addLog(`Progress: ${completed}/${entries.length} files saved.`);
+        const isSystemPath = (p: string) => p.includes('node_modules') || p.includes('.git');
+        const stripZipRootFolder = (p: string) => {
+          const parts = p.split('/').filter(Boolean);
+          if (parts.length <= 1) return p.replace(/^\/+/, '');
+          return parts.slice(1).join('/');
+        };
+
+        const normalizeDirPath = (p: string) => {
+          if (!p) return '';
+          return p.endsWith('/') ? p : `${p}/`;
+        };
+
+        const fileKeys = Object.keys(zip.files);
+        const fileEntries = fileKeys
+          .filter((name) => !zip.files[name].dir)
+          .filter((name) => !isSystemPath(name));
+
+        if (fileEntries.length === 0) {
+          addLog('Zip opened but no valid files found (checked filters).', 'warning');
+        } else {
+          addLog(`Found ${fileEntries.length} valid files to index.`);
         }
 
-        addLog(`Import complete! ${completed} files stored.`, 'success');
+        const dirSet = new Set<string>();
+        const records: Array<{
+          skill_id: string;
+          filename: string;
+          file_path: string;
+          storage_path: string;
+          size_bytes: number | null;
+          content_type: string | null;
+          node_type: 'file' | 'dir';
+          path: string;
+          dir_path: string;
+          basename: string;
+          ext: string | null;
+          depth: number;
+          zip_internal_path: string | null;
+          content_storage_path: string | null;
+        }> = [];
+
+        const addDirChain = (relativeFilePath: string) => {
+          const segments = relativeFilePath.split('/').filter(Boolean);
+          if (segments.length <= 1) return;
+          for (let i = 1; i < segments.length; i++) {
+            const dirPath = normalizeDirPath(segments.slice(0, i).join('/'));
+            dirSet.add(dirPath);
+          }
+        };
+
+        const getContentType = (relativePath: string) => {
+          const lower = relativePath.toLowerCase();
+          if (lower.endsWith('.js')) return 'application/javascript';
+          if (lower.endsWith('.ts')) return 'application/typescript';
+          if (lower.endsWith('.tsx')) return 'application/typescript';
+          if (lower.endsWith('.json')) return 'application/json';
+          if (lower.endsWith('.md')) return 'text/markdown';
+          if (lower.endsWith('.py')) return 'text/x-python';
+          if (lower.endsWith('.txt')) return 'text/plain';
+          if (lower.endsWith('.yml') || lower.endsWith('.yaml')) return 'text/yaml';
+          return 'application/octet-stream';
+        };
+
+        for (const zipKey of fileEntries) {
+          const stripped = stripZipRootFolder(zipKey);
+          if (targetSubfolder) {
+            const prefix = `${targetSubfolder}/`;
+            if (!stripped.startsWith(prefix)) continue;
+          }
+
+          const relative = targetSubfolder ? stripped.slice(targetSubfolder.length + 1) : stripped;
+          const relativePath = relative.replace(/^\/+/, '');
+          if (!relativePath) continue;
+
+          addDirChain(relativePath);
+
+          const segments = relativePath.split('/').filter(Boolean);
+          const basename = segments[segments.length - 1] || relativePath;
+          const dirPath = segments.length > 1 ? normalizeDirPath(segments.slice(0, -1).join('/')) : '';
+          const extMatch = basename.match(/(\.[a-z0-9]+)$/i);
+          const ext = extMatch ? extMatch[1].toLowerCase() : null;
+          const fileObj = zip.files[zipKey] as unknown as { _data?: { uncompressedSize?: number } };
+          const sizeBytes = typeof fileObj._data?.uncompressedSize === 'number' ? fileObj._data.uncompressedSize : null;
+          const contentType = getContentType(relativePath);
+
+          records.push({
+            skill_id: skillId,
+            filename: basename,
+            file_path: relativePath,
+            storage_path: uploadedZipPath,
+            size_bytes: sizeBytes,
+            content_type: contentType,
+            node_type: 'file',
+            path: relativePath,
+            dir_path: dirPath,
+            basename,
+            ext,
+            depth: segments.length,
+            zip_internal_path: zipKey,
+            content_storage_path: null
+          });
+        }
+
+        Array.from(dirSet)
+          .sort((a, b) => a.localeCompare(b))
+          .forEach((dirPath) => {
+            const clean = dirPath.replace(/\/+$/, '');
+            const segments = clean.split('/').filter(Boolean);
+            const basename = segments[segments.length - 1] || clean || '/';
+            const parentDir = segments.length > 1 ? normalizeDirPath(segments.slice(0, -1).join('/')) : '';
+
+            records.push({
+              skill_id: skillId,
+              filename: basename,
+              file_path: dirPath,
+              storage_path: uploadedZipPath,
+              size_bytes: null,
+              content_type: null,
+              node_type: 'dir',
+              path: dirPath,
+              dir_path: parentDir,
+              basename,
+              ext: null,
+              depth: segments.length,
+              zip_internal_path: null,
+              content_storage_path: null
+            });
+          });
+
+        records.sort((a, b) => a.path.localeCompare(b.path));
+
+        addLog(`Saving index records: ${records.length} nodes...`);
+        await saveSkillFileRecordsBulk(records);
+
+        addLog(`Import complete! ZIP stored and ${records.length} nodes indexed.`, 'success');
         setTimeout(() => onNavigate('dashboard'), 1500);
 
-    } catch (e: any) {
-        addLog(`Upload failed: ${e.message}`, 'error');
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Unknown error';
+        addLog(`Upload failed: ${message}`, 'error');
         console.error(e);
     } finally {
         setIsUploading(false);
@@ -345,6 +503,19 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
   return (
     <div className="animate-fade-in flex flex-col h-full overflow-hidden p-4 gap-4">
       
+      {/* HEADER: Greeting & Clock */}
+      <div className="bg-[#0f0f0f] border border-cyber-border rounded-lg p-4 shadow-lg flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1">
+            Good {getGreeting()}, <span className="text-cyber-blue">{userName}</span>
+          </h2>
+          <div className="flex items-center gap-2 text-gray-400 text-sm font-mono">
+            <Clock size={14} className="text-cyber-cyan" />
+            <span>{formatDateTime()}</span>
+          </div>
+        </div>
+      </div>
+
       {/* TOP ROW: Search & Logs */}
       <div className="flex gap-4 h-[200px] flex-shrink-0">
           
@@ -482,8 +653,17 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
                                    )}
                                </div>
                                
-                               {/* Edit Tags Area */}
+                               {/* Tags Area - Category (Fixed) + Editable Tags */}
                                <div className="flex flex-wrap gap-2 items-center">
+                                   {/* Fixed Category Tag */}
+                                   {adaptedResult.category && (
+                                       <span className="bg-gradient-to-r from-cyber-orange/20 to-orange-500/20 border border-cyber-orange/50 px-2 py-0.5 rounded text-[10px] text-cyber-orange font-semibold flex items-center">
+                                           <Folder size={8} className="mr-1"/>
+                                           {adaptedResult.category}
+                                       </span>
+                                   )}
+
+                                   {/* Editable Tags */}
                                    {editableTags.map(tag => (
                                        <span key={tag} className="bg-cyber-panel border border-cyber-border px-2 py-0.5 rounded text-[10px] text-cyber-cyan flex items-center group">
                                            {tag}
@@ -493,8 +673,8 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
                                        </span>
                                    ))}
                                    <div className="flex items-center bg-[#000] border border-cyber-border rounded px-2 py-0.5">
-                                       <input 
-                                           type="text" 
+                                       <input
+                                           type="text"
                                            value={newTag}
                                            onChange={(e) => setNewTag(e.target.value)}
                                            onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
@@ -559,9 +739,9 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate }) => {
 
                                        {repoFiles.length > 0 && !previewContent && !loadingPreview ? (
                                            <div className="space-y-1">
-                                                {repoFiles.map((file: any) => (
+                                                {repoFiles.map((file) => (
                                                     <div 
-                                                        key={file.path} 
+                                                        key={`${file.type}:${file.path ?? file.name}`} 
                                                         onClick={() => handleFileClick(file)}
                                                         className="flex items-center gap-3 p-1.5 rounded hover:bg-[#2a2a2a] cursor-pointer group transition-colors"
                                                     >

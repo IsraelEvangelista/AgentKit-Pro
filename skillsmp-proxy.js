@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import got from 'got';
 import { gotScraping } from 'got-scraping';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -26,27 +27,48 @@ console.log("Starting SkillsMP Local Proxy (v5 - Vercel Compatible)...");
 
 // 1. Download Proxy Handler (/api/download)
 app.get('/api/download', async (req, res) => {
-    const fileUrl = req.query.url;
-    if (!fileUrl) return res.status(400).send('Missing url parameter');
+    const rawUrl = req.query.url;
+    const fileUrl = Array.isArray(rawUrl) ? rawUrl[0] : rawUrl;
+    if (typeof fileUrl !== 'string' || !fileUrl) return res.status(400).send('Missing url parameter');
+    if (!/^https?:\/\//i.test(fileUrl)) return res.status(400).send('Invalid url parameter');
 
     console.log(`[Proxy] Download Request: ${fileUrl}`);
 
     try {
-        const response = await gotScraping({
-            url: fileUrl,
-            responseType: 'buffer',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://skillsmp.com/',
-                'Accept': '*/*'
-            },
-            throwHttpErrors: false,
-            followRedirect: true, 
-            maxRedirects: 5
-        });
+        const urlObj = new URL(fileUrl);
+        const isGithub = urlObj.hostname === 'github.com' || urlObj.hostname === 'codeload.github.com';
+        const isSkillsmp = urlObj.hostname.endsWith('skillsmp.com');
+        const authorizationHeader =
+          isSkillsmp && process.env.VITE_SKILLSMP_API_KEY
+            ? `Bearer ${process.env.VITE_SKILLSMP_API_KEY}`
+            : undefined;
+
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': isSkillsmp ? 'https://skillsmp.com/' : undefined,
+          'Accept': '*/*',
+          'Authorization': authorizationHeader
+        };
+
+        const response = isGithub
+          ? await got(fileUrl, {
+              responseType: 'buffer',
+              headers,
+              throwHttpErrors: false,
+              followRedirect: true,
+              maxRedirects: 5
+            })
+          : await gotScraping({
+              url: fileUrl,
+              responseType: 'buffer',
+              headers,
+              throwHttpErrors: false,
+              followRedirect: true,
+              maxRedirects: 5
+            });
 
         if (response.statusCode >= 400) {
-            return res.status(response.statusCode).send(`Upstream Error: ${response.statusCode} - ${response.statusMessage}`);
+            return res.status(response.statusCode).send(`Upstream Error: ${response.statusCode} - ${response.statusMessage || ''}`.trim());
         }
 
         res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
@@ -55,7 +77,7 @@ app.get('/api/download', async (req, res) => {
 
     } catch (error) {
         console.error('[Proxy Download Error]', error);
-        res.status(500).send(error.message);
+        res.status(500).send(error instanceof Error ? error.message : 'Unknown error');
     }
 });
 
@@ -104,24 +126,38 @@ app.get('/api/github-api', async (req, res) => {
 // 4. General API Proxy Handler (/api/*)
 // This catches /api/skills/ai-search etc.
 app.use('/api', async (req, res) => {
-    const endpoint = req.url; 
+    const endpoint = req.url;
     // IMPORTANT: req.url here is RELATIVE to /api mount point.
     // If request is /api/skills/ai-search, req.url is /skills/ai-search
-    
+
     const targetUrl = `${API_BASE_URL}${endpoint}`;
-    
+
     console.log(`[Proxy] Forwarding: ${endpoint} -> ${targetUrl}`);
 
     try {
         const { body, statusCode } = await gotScraping({
             url: targetUrl,
             method: req.method,
-            responseType: 'text', 
+            responseType: 'text',
             headers: {
                 'Authorization': `Bearer ${process.env.VITE_SKILLSMP_API_KEY}`,
-                // ... headers
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://skillsmp.com/',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Origin': 'https://skillsmp.com',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
             },
-            throwHttpErrors: false
+            throwHttpErrors: false,
+            followRedirect: true,
+            maxRedirects: 5,
+            https: {
+                rejectUnauthorized: false
+            }
         });
 
         // ... response handling
@@ -133,6 +169,7 @@ app.use('/api', async (req, res) => {
         }
 
     } catch (error) {
+        console.error('[Proxy Forward Error]', error.message);
         res.status(500).json({ error: error.message });
     }
 });

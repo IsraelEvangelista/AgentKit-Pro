@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Box, Lock, User, Eye, EyeOff, ArrowRight, Github } from 'lucide-react';
+import { Box, Lock, User, Eye, EyeOff, ArrowRight, Github, Loader2 } from 'lucide-react';
+import { signInWithGitHub } from '../services/authService';
 
 interface LoginPageProps {
   onLogin: () => void;
@@ -10,8 +11,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('dev@agentpro.kit');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
-  // Mock Login Handler
+  const [isGithubLoading, setIsGithubLoading] = useState(false);
+
+  // Mock Login Handler (for development)
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -22,11 +24,32 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     }, 1000);
   };
 
+  // GitHub OAuth Handler
+  const handleGithubLogin = async () => {
+    setIsGithubLoading(true);
+
+    try {
+      const { user, error } = await signInWithGitHub();
+
+      if (error) {
+        console.error('GitHub login error:', error);
+        setIsGithubLoading(false);
+        return;
+      }
+
+      // OAuth will redirect to GitHub, so we don't need to do anything else
+      // The redirect back to the app will be handled by Supabase
+    } catch (error) {
+      console.error('GitHub login failed:', error);
+      setIsGithubLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black flex items-center justify-center relative overflow-hidden font-sans">
       {/* Background Grids */}
       <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none"></div>
-      
+
       {/* Glow Effect */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyber-blue/20 blur-[100px] rounded-full pointer-events-none"></div>
 
@@ -57,14 +80,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           <div className="p-8">
             <h2 className="text-xl font-bold text-white mb-1">Identity Verification</h2>
             <p className="text-gray-500 text-xs mb-6">Enter credentials to access the mainframe.</p>
-            
+
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-[10px] font-mono uppercase text-gray-400 mb-1.5 ml-1">Operator ID (Email)</label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                  <input 
-                    type="email" 
+                  <input
+                    type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full bg-cyber-dark border border-cyber-border rounded-lg py-3 pl-10 pr-4 text-white text-sm focus:border-cyber-blue focus:ring-1 focus:ring-cyber-blue outline-none transition-all placeholder-gray-700"
@@ -80,15 +103,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                  <input 
+                  <input
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-cyber-dark border border-cyber-border rounded-lg py-3 pl-10 pr-10 text-white text-sm focus:border-cyber-blue focus:ring-1 focus:ring-cyber-blue outline-none transition-all placeholder-gray-700"
                     placeholder="••••••••"
                   />
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
                   >
@@ -97,8 +120,8 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 </div>
               </div>
 
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={isLoading}
                 className="w-full bg-cyber-blue hover:bg-blue-600 text-white font-bold py-3 rounded-lg flex items-center justify-center space-x-2 transition-all duration-300 shadow-[0_4px_14px_0_rgba(45,96,255,0.39)] hover:shadow-[0_6px_20px_rgba(45,96,255,0.23)] disabled:opacity-70 disabled:cursor-wait"
               >
@@ -117,23 +140,30 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             </div>
 
             <div className="flex space-x-3">
-               <button 
+               <button
                 type="button"
                 className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all opacity-50 cursor-not-allowed"
-                title="Disabled for Dev Mode"
+                title="Coming Soon"
                >
                   <span className="text-orange-500 mr-2 font-black">G</span> Google
                </button>
-               <button 
+               <button
                 type="button"
-                className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all opacity-50 cursor-not-allowed"
-                title="Disabled for Dev Mode"
+                onClick={handleGithubLogin}
+                disabled={isGithubLoading}
+                className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border hover:border-white text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-wait"
+                title="Sign in with GitHub"
                >
-                  <Github size={14} className="mr-2" /> GitHub
+                  {isGithubLoading ? (
+                    <Loader2 size={14} className="mr-2 animate-spin" />
+                  ) : (
+                    <Github size={14} className="mr-2" />
+                  )}
+                  GitHub
                </button>
             </div>
           </div>
-          
+
           <div className="p-4 bg-black/20 text-center border-t border-cyber-border">
             <p className="text-xs text-gray-500">New operator? <button className="text-cyber-cyan hover:underline font-bold ml-1">Create Account</button></p>
           </div>
@@ -145,7 +175,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <span>|</span>
             <span>V 3.4.1 (STABLE)</span>
             <span>|</span>
-            <span>MOD: DEVELOPMENT</span>
+            <span>MOD: PRODUCTION</span>
         </div>
       </div>
     </div>

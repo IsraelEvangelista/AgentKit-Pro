@@ -2,6 +2,7 @@ export interface User {
   id: string;
   email: string;
   role: 'operator' | 'admin';
+  display_name?: string;
   avatar?: string;
 }
 
@@ -32,11 +33,19 @@ export interface Skill {
 export interface SkillFile {
   id: string;
   skill_id: string;
+  node_type?: 'file' | 'dir';
+  path?: string;
+  dir_path?: string;
+  basename?: string;
+  ext?: string | null;
+  depth?: number | null;
   filename: string;
   file_path: string;
   storage_path: string;
-  size_bytes: number;
-  content_type: string;
+  zip_internal_path?: string | null;
+  content_storage_path?: string | null;
+  size_bytes: number | null;
+  content_type: string | null;
   created_at: string;
 }
 
@@ -46,6 +55,7 @@ export interface ScrapeResult {
   description: string;
   sourceUrl?: string; // Original URL (e.g. GitHub tree view)
   downloadUrl: string; // Zip download URL
+  category?: string; // Primary category from SkillsMP
   tags: string[];
   latency: number;
   stars?: number;
@@ -67,6 +77,6 @@ export interface SkillsmpSearchResult {
     description: string;
     tags: string[];
     download_url?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
 }
 

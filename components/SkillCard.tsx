@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Layers, Trash2, ArrowRight, PauseCircle, CheckCircle, Database } from 'lucide-react';
+import { Calendar, Layers, Trash2, ArrowRight, PauseCircle, CheckCircle, Database, Star } from 'lucide-react';
 import { Skill, SkillStatus } from '../types';
 
 interface SkillCardProps {
@@ -27,8 +27,16 @@ const SkillCard: React.FC<SkillCardProps> = ({ skill, onDelete, onView }) => {
      }
   }
 
+  const displayDate = (() => {
+    if (!skill.dateAdded) return '';
+    if (typeof skill.dateAdded === 'string' && skill.dateAdded.length >= 10) {
+      return skill.dateAdded.slice(0, 10);
+    }
+    return skill.dateAdded;
+  })();
+
   return (
-    <div className="cyber-card p-5 rounded-lg flex flex-col h-full hover:border-cyber-blue/50 transition-all duration-300 group">
+    <div className="cyber-card p-5 rounded-lg flex flex-col h-full min-h-[280px] min-w-0 hover:border-cyber-blue/50 transition-all duration-300 group overflow-hidden">
       <div className="flex justify-between items-start mb-4">
         <div className="w-10 h-10 bg-cyber-border rounded flex items-center justify-center text-cyber-text font-bold text-lg group-hover:text-cyber-blue group-hover:bg-cyber-blue/10 transition-colors">
             {skill.title.substring(0, 2).toUpperCase()}
@@ -40,22 +48,28 @@ const SkillCard: React.FC<SkillCardProps> = ({ skill, onDelete, onView }) => {
       </div>
 
       <h3 className="text-lg font-bold text-white mb-1 line-clamp-1">{skill.title}</h3>
-      <p className="text-xs text-cyber-orange font-mono mb-3 uppercase tracking-wider">{skill.category}</p>
+      <p className="text-xs text-cyber-orange font-mono mb-3 uppercase tracking-wider truncate">{skill.category}</p>
       
       <p className="text-sm text-gray-400 mb-6 flex-1 line-clamp-3 leading-relaxed">
         {skill.description}
       </p>
 
       <div className="border-t border-cyber-border pt-4 mt-auto">
-        <div className="flex items-center space-x-4 mb-4 text-xs text-gray-500 font-mono">
-            <div className="flex items-center">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4 text-xs text-gray-500 font-mono min-w-0">
+            <div className="flex items-center min-w-0">
                 <Calendar size={12} className="mr-1" />
-                {skill.dateAdded}
+                <span className="truncate">{displayDate}</span>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center min-w-0">
                 <Layers size={12} className="mr-1" />
-                {skill.level}
+                <span className="truncate">{skill.level}</span>
             </div>
+            {skill.stars > 0 && (
+                <div className="flex items-center text-cyber-orange">
+                    <Star size={12} className="mr-1 fill-cyber-orange/20" />
+                    {skill.stars}
+                </div>
+            )}
         </div>
 
         <div className="flex space-x-2">

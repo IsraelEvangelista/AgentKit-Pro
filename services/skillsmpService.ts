@@ -51,12 +51,19 @@ export const getSkillDetails = async (skillId: string): Promise<any> => {
 };
 
 export const downloadSkillFile = async (dUrl: string): Promise<Blob> => {
+    if (!dUrl || !/^https?:\/\//i.test(dUrl)) {
+        throw new Error('Invalid download URL');
+    }
     // Target: /api/download?url=...
     const fetchUrl = `${PROXY_BASE}/download?url=${encodeURIComponent(dUrl)}`;
 
     const response = await fetch(fetchUrl);
 
-    if (!response.ok) throw new Error('Failed to download skill file via proxy');
+    if (!response.ok) {
+        const details = await response.text().catch(() => '');
+        const suffix = details ? `: ${details.slice(0, 300)}` : '';
+        throw new Error(`Failed to download skill file via proxy (${response.status})${suffix}`);
+    }
     return await response.blob();
 };
 
@@ -157,13 +164,13 @@ export const fetchRepoContents = async (githubUrl: string): Promise<any[]> => {
 export const adaptToScrapeResult = (apiResult: any): ScrapeResult => {
     const skillData = apiResult.skill || {};
     const metadata = apiResult.metadata || skillData.metadata || {};
-    
+
     const title = skillData.name || apiResult.filename || apiResult.title || 'Unknown Skill';
     const description = skillData.description || apiResult.description || apiResult.summary || `File: ${apiResult.filename || 'N/A'}`;
-    
+
     let sourceUrl = apiResult.download_url || skillData.githubUrl || skillData.skillUrl || apiResult.url || '';
     let downloadUrl = sourceUrl;
-    
+
     if (downloadUrl && downloadUrl.includes('github.com')) {
         downloadUrl = downloadUrl.replace(/\/$/, '');
         const parts = downloadUrl.split('github.com/')[1].split('/');
@@ -172,13 +179,66 @@ export const adaptToScrapeResult = (apiResult: any): ScrapeResult => {
         downloadUrl = `https://github.com/${owner}/${repo}/archive/refs/heads/main.zip`;
     }
 
-    const tags = apiResult.tags || apiResult.categories || (skillData.author ? [skillData.author] : []) || [];
-    
+    const normalizeCategory = (value: unknown) => {
+        if (typeof value !== 'string') return undefined;
+        const c = value.trim();
+        if (!c) return undefined;
+        return c;
+    };
+
+    const deriveCategoryFromGithubUrl = (value: unknown) => {
+        if (typeof value !== 'string' || !value.includes('github.com/')) return undefined;
+        try {
+            const u = new URL(value);
+            const parts = u.pathname.split('/').filter(Boolean);
+            const treeIndex = parts.indexOf('tree');
+            if (treeIndex === -1) return undefined;
+            const afterTree = parts.slice(treeIndex + 2);
+            const pluginsIndex = afterTree.indexOf('plugins');
+            if (pluginsIndex !== -1 && afterTree.length > pluginsIndex + 1) {
+                return normalizeCategory(afterTree[pluginsIndex + 1]);
+            }
+            return undefined;
+        } catch {
+            return undefined;
+        }
+    };
+
+    const deriveCategoryFromFilename = (value: unknown) => {
+        if (typeof value !== 'string') return undefined;
+        const matches = value.match(/plugins-([a-z0-9-]+)-skills/gi);
+        if (matches && matches.length > 0) {
+            const last = matches[matches.length - 1] || '';
+            const m = last.match(/plugins-([a-z0-9-]+)-skills/i);
+            return normalizeCategory(m?.[1]);
+        }
+        return undefined;
+    };
+
+    // Extract category from API response
+    // The API may return category as a string, categories array, or within skillData
+    const category =
+        normalizeCategory(skillData.category) ||
+        normalizeCategory(apiResult.category) ||
+        (Array.isArray(apiResult.categories) ? normalizeCategory(apiResult.categories[0]) : undefined) ||
+        (Array.isArray(skillData.categories) ? normalizeCategory(skillData.categories[0]) : undefined) ||
+        deriveCategoryFromGithubUrl(skillData.githubUrl) ||
+        deriveCategoryFromGithubUrl(apiResult.url) ||
+        deriveCategoryFromFilename(apiResult.filename) ||
+        undefined;
+
+    // Tags exclude the primary category to avoid duplication
+    const apiTags = apiResult.tags || apiResult.categories || [];
+    const tags = category
+        ? apiTags.filter((t: string) => t !== category)
+        : apiTags;
+
     return {
         title,
         description,
         sourceUrl,
         downloadUrl,
+        category,
         tags,
         latency: Math.round(apiResult.score * 100) || 0,
         stars: metadata.stars || skillData.stars || 0,
