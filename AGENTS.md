@@ -116,6 +116,8 @@
 - **Manter versões atualizadas** em ambos os sistemas
 
 ## Pendências e TODOs Atuais
+- Implementar link para Política de Privacidade do aplicativo
+- Implementar link para Termos de Serviço do aplicativo
 
 
 ## Histórico de Atualizações (Sessão Atual)
@@ -138,6 +140,30 @@
   - `/api/download`: Download de Zips
   - `/api/preview`: Leitura de Texto
   - `/api/github-api`: Proxy GitHub
+
+### Plano Aprovado (2 Fases) — ZIP + Metadados + View Details
+
+#### Fase 1 — Organizar download em ZIP + upload + CRUD + metadados
+1. **Storage (artefato principal):** armazenar 1 ZIP por skill no bucket `skills` (ex.: `userId/skillId/skill.zip`).
+2. **Skills (tabela):** persistir o caminho do ZIP no campo `storage_path` e manter `source_url/metadata` para referência.
+3. **skill_files (tabela):** ampliar para representar a árvore completa (pastas + arquivos) com metadados:
+   - Tipo do nó (`dir`/`file`), caminho relativo, pasta pai, nome base, extensão, profundidade, caminho interno no ZIP.
+4. **CRUD:** create/update para salvar skill + zip + índice; read para listar skills/árvore; delete para apagar skill (cascade nos metadados).
+5. **RLS:** policies por ownership (skill.user_id) com suporte a modo dev via `dev_policy.sql`.
+
+#### Fase 2 — Visualização no Modal “View Details”
+1. **Árvore de pastas/arquivos:** sidebar com nós colapsáveis e ordenação por pasta/arquivo.
+2. **Leitura por ZIP:** ao clicar num arquivo, baixar o ZIP 1 vez, abrir com JSZip e ler o arquivo via `zip_internal_path`.
+3. **Renderização:** `.md` via `react-markdown` + `rehype-highlight`; demais textos em `pre`; binários com download.
+4. **Performance:** cache do ZIP no estado do modal e loaders separados (árvore/zip/conteúdo).
+
+### Implementações Realizadas (Sessão Atual)
+- **Migrações Supabase aplicadas:** criação/ajustes de `skills` e `skill_files`, índices, RLS e bucket/policies de Storage; além de policy permissiva para modo mock/dev via migration.
+- **Importação via ZIP:** upload de `skill.zip` por skill e indexação completa de árvore (pastas/arquivos) com metadados (`node_type`, `dir_path`, `zip_internal_path`, etc.).
+- **Modal “View Details”:** árvore colapsável e preview lendo do ZIP (Markdown com highlight + fallback para legado).
+- **Proxy SkillsMP:** download mais robusto (validação de URL, suporte GitHub via `got`, e erro mais detalhado no frontend).
+- **Dashboard:** correções de ownership (`user_id` real) e ajustes de layout do card para evitar overflow (wrap/truncate e data compactada).
+- **Category:** melhoria no `adaptToScrapeResult` para preencher `category` a partir de `githubUrl/filename` quando a API não retornar.
 
 ## Regras de Engajamento
 

@@ -12,7 +12,7 @@ dist
 dist-ssr
 *.local
 .env
-
+.claude/settings.local.json
 
 # Editor directories and files
 .vscode/*
@@ -24,3 +24,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary files
+nul
