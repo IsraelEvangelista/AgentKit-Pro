@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Globe, Terminal, Loader2, Link2, UploadCloud, X, Wifi, List, Edit2, Check, Star, GitFork, ExternalLink, Folder, FileText, Clock } from 'lucide-react';
+import { Globe, Terminal, Loader2, Link2, UploadCloud, X, Wifi, List, Edit2, Check, Star, GitFork, ExternalLink, Folder, FileText } from 'lucide-react';
 import { searchSkills, downloadSkillFile, adaptToScrapeResult, fetchSkillReadme, fetchRepoContents, getSkillDetails, previewFileContent } from '../services/skillsmpService';
 import { saveSkillToDb, saveSkillFileRecordsBulk, updateSkillStoragePath, uploadSkillFileRaw } from '../services/skillsService';
+import { Category } from '../services/categoriesService';
 import { ScrapeResult, LogEntry, SkillStatus, User } from '../types';
 import { supabase } from '../services/supabaseClient';
+import { CategorySelector } from '../components/CategorySelector';
 import JSZip from 'jszip'; // Make sure this is installed
 import ReactMarkdown from 'react-markdown'; // Assuming installed, or just text for now? Text for now to be safe.
 
-interface ScraperPageProps {
+interface SearchPageProps {
   onNavigate: (page: string) => void;
   user?: User | null;
 }
@@ -36,7 +38,7 @@ const isRepoNode = (value: unknown): value is RepoNode => {
   return (v.type === 'file' || v.type === 'dir') && typeof v.name === 'string';
 };
 
-const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
+const SearchPage: React.FC<SearchPageProps> = ({ onNavigate, user }) => {
   const [url, setUrl] = useState('');
   const [isScraping, setIsScraping] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -57,10 +59,10 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
   const [previewContent, setPreviewContent] = useState<string>('');
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [repoFiles, setRepoFiles] = useState<RepoNode[]>([]);
-  
-  // User greeting and clock
-  const [userName, setUserName] = useState<string>('User');
-  const [currentDateTime, setCurrentDateTime] = useState<Date>(new Date());
+
+  // Category selection state
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [showCategorySelector, setShowCategorySelector] = useState(false);
 
   // Auto scroll logs
   useEffect(() => {
@@ -75,52 +77,6 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
           setEditableTags(adaptedResult.tags);
       }
   }, [adaptedResult]);
-
-  // Fetch user name from Supabase
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          // Try to get user metadata name, fallback to email
-          const name = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
-          setUserName(name);
-        }
-      } catch (error) {
-        console.error('Error fetching user:', error);
-      }
-    };
-    
-    fetchUser();
-  }, []);
-
-  // Update clock every second
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentDateTime(new Date());
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  // Get greeting based on time of day
-  const getGreeting = (): string => {
-    const hour = currentDateTime.getHours();
-    if (hour >= 6 && hour < 12) return 'morning';
-    if (hour >= 12 && hour < 18) return 'afternoon';
-    return 'night';
-  };
-
-  // Format date and time
-  const formatDateTime = (): string => {
-    const day = String(currentDateTime.getDate()).padStart(2, '0');
-    const month = String(currentDateTime.getMonth() + 1).padStart(2, '0');
-    const year = currentDateTime.getFullYear();
-    const hours = String(currentDateTime.getHours()).padStart(2, '0');
-    const minutes = String(currentDateTime.getMinutes()).padStart(2, '0');
-    const seconds = String(currentDateTime.getSeconds()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-  };
 
   const generateLogId = () => {
       logIdCounter.current += 1;
@@ -270,8 +226,16 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
 
   const handleUpload = async () => {
     if (!adaptedResult) return;
+
+    // Show category selector if not selected yet
+    if (!selectedCategory && !showCategorySelector) {
+      setShowCategorySelector(true);
+      addLog('Please select a category before importing.', 'warning');
+      return;
+    }
+
     setIsUploading(true);
-    addLog('Starting import process...', 'info');
+    addLog(`Starting import process... Category: ${selectedCategory?.name || 'Uncategorized'}`, 'info');
 
     try {
         let userId = user?.id;
@@ -334,6 +298,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
             title: adaptedResult.title,
             description: adaptedResult.description,
             category: adaptedResult.category || 'Uncategorized',
+            categoryId: selectedCategory?.id,
             url: adaptedResult.sourceUrl || adaptedResult.downloadUrl || url,
             storageUrl: undefined,
             level: 'Pleno',
@@ -502,19 +467,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
 
   return (
     <div className="animate-fade-in flex flex-col h-full overflow-hidden p-4 gap-4">
-      
-      {/* HEADER: Greeting & Clock */}
-      <div className="bg-[#0f0f0f] border border-cyber-border rounded-lg p-4 shadow-lg flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white mb-1">
-            Good {getGreeting()}, <span className="text-cyber-blue">{userName}</span>
-          </h2>
-          <div className="flex items-center gap-2 text-gray-400 text-sm font-mono">
-            <Clock size={14} className="text-cyber-cyan" />
-            <span>{formatDateTime()}</span>
-          </div>
-        </div>
-      </div>
+      {/* TOP ROW: Search & Logs */}
 
       {/* TOP ROW: Search & Logs */}
       <div className="flex gap-4 h-[200px] flex-shrink-0">
@@ -685,8 +638,54 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
                                    </div>
                                </div>
                            </div>
-                           
-                           <button 
+
+                           {/* Selected Category Display */}
+                           <div className="mt-4">
+                               <div className="flex items-center justify-between mb-2">
+                                   <span className="text-xs text-gray-400 uppercase tracking-wider">Category</span>
+                               </div>
+                               {selectedCategory ? (
+                                   <div className="flex items-center gap-2 bg-[#1a1a1a] border border-cyber-border rounded px-3 py-2">
+                                       <span className="text-lg">{selectedCategory.icon || '📁'}</span>
+                                       <div className="flex-1">
+                                           <p className="text-sm font-medium text-white">{selectedCategory.name}</p>
+                                           {selectedCategory.description && (
+                                               <p className="text-[10px] text-gray-500">{selectedCategory.description}</p>
+                                           )}
+                                       </div>
+                                       <button
+                                           onClick={() => setSelectedCategory(null)}
+                                           className="text-gray-500 hover:text-red-400 transition-colors"
+                                       >
+                                           <X size={14} />
+                                       </button>
+                                   </div>
+                               ) : (
+                                   <button
+                                       onClick={() => setShowCategorySelector(true)}
+                                       className="w-full p-3 border border-dashed border-cyber-border rounded text-gray-500 hover:text-cyber-blue hover:border-cyber-blue/50 transition-all flex items-center justify-center gap-2"
+                                   >
+                                       <Folder size={16} />
+                                       <span className="text-sm">Select a category (optional)</span>
+                                   </button>
+                               )}
+                           </div>
+
+                           {/* Category Selector Panel */}
+                           {showCategorySelector && (
+                               <CategorySelector
+                                   selectedCategoryId={selectedCategory?.id}
+                                   onCategorySelect={(category) => {
+                                       setSelectedCategory(category);
+                                       setShowCategorySelector(false);
+                                   }}
+                                   onClose={() => setShowCategorySelector(false)}
+                               />
+                           )}
+
+                           {/* Confirm Import Button */}
+                           <div className="mt-6">
+                               <button 
                               onClick={handleUpload}
                               disabled={isUploading}
                               className="bg-gradient-to-r from-cyber-blue to-blue-600 hover:from-cyber-blue/80 hover:to-blue-500 text-black px-6 py-3 rounded font-bold text-xs uppercase tracking-widest shadow-[0_0_15px_rgba(0,255,255,0.2)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all transform hover:scale-105"
@@ -694,6 +693,7 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
                                {isUploading ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
                                {isUploading ? 'Importing...' : 'Confirm Import'}
                            </button>
+                               </div>
                        </div>
                        
                        {/* Stats Row */}
@@ -806,4 +806,4 @@ const ScraperPage: React.FC<ScraperPageProps> = ({ onNavigate, user }) => {
   );
 };
 
-export default ScraperPage;
+export default SearchPage;

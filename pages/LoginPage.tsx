@@ -1,17 +1,35 @@
 import React, { useState } from 'react';
-import { Box, Lock, User, Eye, EyeOff, ArrowRight, Github, Loader2 } from 'lucide-react';
+import { X, Lock, User, Eye, EyeOff, ArrowRight, Github, Loader2 } from 'lucide-react';
 import { signInWithGitHub } from '../services/authService';
+import RegisterPage from './RegisterPage';
 
 interface LoginPageProps {
   onLogin: () => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
+  const [showRegister, setShowRegister] = useState(false);
+  const [showVerificationNotification, setShowVerificationNotification] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('dev@agentpro.kit');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGithubLoading, setIsGithubLoading] = useState(false);
+
+  const handleRegisterSuccess = () => {
+    setShowVerificationNotification(true);
+  };
+
+  if (showRegister) {
+    return (
+      <>
+        <RegisterPage
+          onBackToLogin={() => setShowRegister(false)}
+          onRegisterSuccess={handleRegisterSuccess}
+        />
+      </>
+    );
+  }
 
   // Mock Login Handler (for development)
   const handleLogin = (e: React.FormEvent) => {
@@ -139,19 +157,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                </div>
             </div>
 
-            <div className="flex space-x-3">
-               <button
-                type="button"
-                className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all opacity-50 cursor-not-allowed"
-                title="Coming Soon"
-               >
-                  <span className="text-orange-500 mr-2 font-black">G</span> Google
-               </button>
-               <button
+            <button
                 type="button"
                 onClick={handleGithubLogin}
                 disabled={isGithubLoading}
-                className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border hover:border-white text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-wait"
+                className="w-full bg-cyber-dark border border-cyber-border hover:bg-cyber-border hover:border-white text-white py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-wait"
                 title="Sign in with GitHub"
                >
                   {isGithubLoading ? (
@@ -161,11 +171,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                   )}
                   GitHub
                </button>
-            </div>
           </div>
 
           <div className="p-4 bg-black/20 text-center border-t border-cyber-border">
-            <p className="text-xs text-gray-500">New operator? <button className="text-cyber-cyan hover:underline font-bold ml-1">Create Account</button></p>
+            <p className="text-xs text-gray-500">New operator? <button onClick={() => setShowRegister(true)} className="text-cyber-cyan hover:underline font-bold ml-1">Create Account</button></p>
           </div>
         </div>
 
@@ -177,6 +186,28 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <span>|</span>
             <span>MOD: PRODUCTION</span>
         </div>
+
+        {showVerificationNotification && (
+          <div className="fixed bottom-4 right-4 bg-cyber-panel/90 border border-cyber-green/40 rounded-lg shadow-2xl p-4 max-w-sm animate-in slide-in-from-bottom-4 fade-in duration-300 backdrop-blur z-50">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                <div className="w-8 h-8 rounded-full bg-cyber-green/10 border border-cyber-green/30 flex items-center justify-center">
+                  <Lock size={16} className="text-cyber-green" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-white mb-1">Verification Email Sent</h4>
+                <p className="text-xs text-gray-400">Please check your inbox and click the verification link to activate your account.</p>
+              </div>
+              <button
+                onClick={() => setShowVerificationNotification(false)}
+                className="flex-shrink-0 text-gray-500 hover:text-white transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

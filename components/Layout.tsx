@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, FolderSearch, Settings, LogOut, ShieldCheck, User as UserIcon, Clock } from 'lucide-react';
 import { User } from '../types';
+import { getSignedAvatarUrl } from '../services/avatarService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,6 +14,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate, onLogout }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [currentDateTime, setCurrentDateTime] = useState<Date>(new Date());
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const toggleSidebar = () => setIsSidebarCollapsed(!isSidebarCollapsed);
 
@@ -27,6 +29,61 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const resolveAvatar = async () => {
+      const raw = user.avatar;
+      if (!raw) {
+        setAvatarUrl(null);
+        return;
+      }
+
+      if (raw.startsWith('data:') || raw.startsWith('blob:')) {
+        setAvatarUrl(raw);
+        return;
+      }
+
+      if (raw.startsWith('http')) {
+        if (raw.includes('/storage/v1/object/sign/avatars/')) {
+          setAvatarUrl(raw);
+          return;
+        }
+
+        if (raw.includes('/storage/v1/object/public/avatars/')) {
+          setAvatarUrl(raw);
+          return;
+        }
+
+        if (raw.includes('/storage/v1/object/') && raw.includes('/avatars/')) {
+          const match = raw.match(/\/storage\/v1\/object\/(?:public\/)?avatars\/([^?]+)/);
+          const fileName = match?.[1] ? decodeURIComponent(match[1]) : null;
+          if (fileName) {
+            const { url } = await getSignedAvatarUrl(fileName);
+            if (url) {
+              setAvatarUrl(url);
+              return;
+            }
+
+            setAvatarUrl(null);
+            return;
+          }
+        }
+
+        if (raw.includes('/storage/v1/object/avatars/')) {
+          setAvatarUrl(null);
+          return;
+        }
+
+        setAvatarUrl(raw);
+        return;
+      }
+
+      const { url } = await getSignedAvatarUrl(raw);
+      setAvatarUrl(url);
+    };
+
+    resolveAvatar();
+  }, [user.avatar]);
 
   // Get greeting based on time of day
   const getGreeting = (): string => {
@@ -92,19 +149,19 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
           </button>
 
           <button
-            onClick={() => onNavigate('catalog')}
+            onClick={() => onNavigate('search')}
             className={`
               w-full flex items-center rounded-lg transition-all duration-200 group
               ${isSidebarCollapsed ? 'justify-center px-3 py-3' : 'space-x-3 px-4 py-3'}
-              ${activePage === 'catalog'
+              ${activePage === 'search'
                 ? 'bg-cyber-blue/10 border border-cyber-blue/50 text-white'
                 : 'hover:bg-cyber-border/50 text-cyber-muted'
               }
             `}
-            title={isSidebarCollapsed ? 'Catalog & Scrape' : undefined}
+            title={isSidebarCollapsed ? 'Search' : undefined}
           >
-            <FolderSearch size={18} className={activePage === 'catalog' ? 'text-cyber-cyan' : 'group-hover:text-white flex-shrink-0'} />
-            {!isSidebarCollapsed && <span className="font-medium">Catalog & Scrape</span>}
+            <FolderSearch size={18} className={activePage === 'search' ? 'text-cyber-cyan' : 'group-hover:text-white flex-shrink-0'} />
+            {!isSidebarCollapsed && <span className="font-medium">Search</span>}
           </button>
 
           <button
@@ -132,9 +189,9 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
             ${isSidebarCollapsed ? 'justify-center' : ''}
           `}>
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyber-blue to-cyber-cyan p-[1px] flex-shrink-0 overflow-hidden">
-              {user.avatar ? (
+              {avatarUrl ? (
                 <img
-                  src={user.avatar}
+                  src={avatarUrl}
                   alt="User Avatar"
                   className="w-full h-full rounded-full object-cover"
                   referrerPolicy="no-referrer"
@@ -169,7 +226,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
       </aside>
 
       {/* Main Content */}
-      <main className={`flex-1 relative flex flex-col ${activePage === 'catalog' ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
+      <main className={`flex-1 relative flex flex-col ${activePage === 'search' ? 'overflow-hidden h-screen' : 'overflow-y-auto'}`}>
         <div className="scan-line"></div>
         <header className="h-16 border-b border-cyber-border flex items-center justify-between px-6 bg-cyber-black/50 backdrop-blur-sm sticky top-0 z-10 flex-shrink-0">
           <div className="flex items-center space-x-2 text-cyber-green text-xs font-mono">
@@ -188,7 +245,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
             </div>
           </div>
         </header>
-        <div className={`w-full ${activePage === 'catalog' ? 'h-full p-4 overflow-hidden' : 'p-6 md:p-8'}`}>
+        <div className={`w-full ${activePage === 'search' ? 'h-full p-4 overflow-hidden' : 'p-6 md:p-8'}`}>
           {children}
         </div>
       </main>

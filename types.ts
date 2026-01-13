@@ -17,7 +17,8 @@ export interface Skill {
   id: string;
   title: string;
   description: string;
-  category: string;
+  category: string; // Legacy category name (for backward compatibility)
+  categoryId?: string; // Foreign key to categories table
   level: string;
   tags: string[];
   url?: string;

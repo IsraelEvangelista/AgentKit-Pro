@@ -58,13 +58,14 @@ export const getSkillZipBlob = async (storagePath: string): Promise<Blob | null>
 };
 
 // Passing userId as argument since we might use mock auth
-export const saveSkillToDb = async (skillData: Omit<Skill, 'id' | 'dateAdded'>, userId?: string): Promise<Skill | null> => {
+export const saveSkillToDb = async (skillData: Omit<Skill, 'id' | 'dateAdd'> & { categoryId?: string }, userId?: string): Promise<Skill | null> => {
   // Map Frontend CamelCase to DB Snake_Case
   const payload = {
     user_id: userId,
     title: skillData.title,
     description: skillData.description,
     category: skillData.category,
+    category_id: skillData.categoryId,
     level: skillData.level,
     tags: skillData.tags,
     source_url: skillData.url,

@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { User } from './types';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
-import ScraperPage from './pages/ScraperPage';
+import SearchPage from './pages/SearchPage';
+import SettingsPage from './pages/SettingsPage';
 import Layout from './components/Layout';
 import { getSession, onAuthStateChange, signOut } from './services/authService';
+import { useHashRouter } from './hooks/useHashRouter';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [activePage, setActivePage] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(true);
+  const { currentPage: activePage, navigate: setActivePage } = useHashRouter();
 
   useEffect(() => {
     // Check initial session
@@ -57,16 +59,10 @@ const App: React.FC = () => {
     switch (activePage) {
       case 'dashboard':
         return <DashboardPage onNavigate={setActivePage} user={user} />;
-      case 'catalog':
-        return <ScraperPage onNavigate={setActivePage} user={user} />;
+      case 'search':
+        return <SearchPage onNavigate={setActivePage} user={user} />;
       case 'settings':
-        return (
-            <div className="flex flex-col items-center justify-center h-96 text-gray-500">
-                <div className="text-4xl mb-4">⚙️</div>
-                <h2 className="text-xl font-mono uppercase">System Configuration</h2>
-                <p>Module under construction...</p>
-            </div>
-        );
+        return <SettingsPage user={user} />;
       default:
         return <DashboardPage onNavigate={setActivePage} />;
     }

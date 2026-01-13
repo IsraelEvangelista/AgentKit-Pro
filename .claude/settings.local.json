@@ -14,7 +14,32 @@
       "mcp__web-search-prime__webSearchPrime",
       "mcp__plugin_context7_context7__resolve-library-id",
       "mcp__plugin_context7_context7__get-library-docs",
-      "Bash(curl -X GET \"https://skillsmp.com/api/v1/skills/ai-search?q=data\" -H \"Authorization: Bearer sk_live_skillsmp_KtbFxfx8WALgmWb8bfy8cpholKQRWdr7IV6vgj_WgnQ\" -v)"
+      "Bash(curl -X GET \"https://skillsmp.com/api/v1/skills/ai-search?q=data\" -H \"Authorization: Bearer sk_live_skillsmp_KtbFxfx8WALgmWb8bfy8cpholKQRWdr7IV6vgj_WgnQ\" -v)",
+      "Bash(curl:*)",
+      "mcp__plugin_serena_serena__find_file",
+      "mcp__web-reader__webReader",
+      "Skill(debug)",
+      "Skill(security)",
+      "Bash(npm run type-check:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run lint)",
+      "Bash(npx eslint:*)",
+      "Bash(npm run build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: add GitHub OAuth, fix TypeScript errors, and improve UI\n\n- Add GitHub OAuth authentication with Supabase integration\n- Implement collapsible sidebar with toggle on header click\n- Display user avatar, display_name, and real role\n- Fix TypeScript errors in ScraperPage, mockService, and tsconfig\n- Update browser title to \"AgentPro-Kit\"\n- Add Supabase migrations for dev policies and skills zip tree\n- Improve dashboard grid responsiveness \\(2-6 columns\\)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\ndocs: update AGENTS.md and add project plan document\n\n- Update AGENTS.md with latest project context\n- Add implementation plan for zip + metadata and view details\n- Update .gitignore to exclude local Claude settings and temp files\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "mcp__plugin_serena_serena__check_onboarding_performed",
+      "mcp__plugin_serena_serena__get_current_config",
+      "mcp__plugin_serena_serena__search_for_pattern",
+      "mcp__plugin_serena_serena__read_file",
+      "mcp__plugin_serena_serena__replace_content",
+      "Bash(if [ ! -d \"hooks\" ])",
+      "Bash(then mkdir hooks)",
+      "Bash(fi)",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "Bash(ls:*)"
     ]
   }
 }

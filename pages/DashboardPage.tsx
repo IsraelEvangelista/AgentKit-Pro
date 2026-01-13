@@ -125,13 +125,13 @@ const DashboardPage: React.FC<DashboardProps> = ({ onNavigate, user }) => {
 
       {/* Grid - Responsive with more columns */}
       {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {[1, 2, 3, 4, 5, 6].map(i => (
             <div key={i} className="h-64 rounded-lg bg-cyber-panel/50 border border-cyber-border animate-pulse"></div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredSkills.map(skill => (
             <SkillCard
               key={skill.id}
@@ -143,7 +143,7 @@ const DashboardPage: React.FC<DashboardProps> = ({ onNavigate, user }) => {
 
           {/* Add New Card */}
           <button
-            onClick={() => onNavigate('catalog')}
+            onClick={() => onNavigate('search')}
             className="border-2 border-dashed border-cyber-border rounded-lg flex flex-col items-center justify-center p-6 text-gray-500 hover:border-cyber-blue hover:text-cyber-blue hover:bg-cyber-blue/5 transition-all group min-h-[280px]"
           >
             <div className="w-14 h-14 rounded-full bg-cyber-panel flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">

@@ -136,3 +136,39 @@ export const onAuthStateChange = (callback: (user: AuthUser | null) => void) => 
     callback(user);
   });
 };
+
+/**
+ * Sign up with email and password
+ * Creates user in auth.users, profile in profiles table, and sends verification email
+ */
+export const signUpWithEmail = async (
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<{ user: AuthUser | null; error: string | null }> => {
+  try {
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: displayName || email.split('@')[0],
+          role: 'user',
+        },
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (signUpError) {
+      return { user: null, error: signUpError.message };
+    }
+
+    if (!data.user) {
+      return { user: null, error: 'Failed to create user' };
+    }
+
+    return { user: null, error: null };
+  } catch (e: any) {
+    return { user: null, error: e.message || 'Failed to sign up' };
+  }
+};
