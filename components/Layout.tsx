@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, FolderSearch, Settings, LogOut, ShieldCheck, User as UserIcon, Clock } from 'lucide-react';
 import { User } from '../types';
 import { getSignedAvatarUrl } from '../services/avatarService';
+import { supabase } from '../services/supabaseClient';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -32,6 +33,38 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
 
   useEffect(() => {
     const resolveAvatar = async () => {
+      // First, try to get avatar from profiles table (uploaded avatar)
+      if (user.id) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('avatar_url')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profile?.avatar_url) {
+          const profileAvatar = profile.avatar_url;
+
+          // Handle different avatar URL formats
+          if (profileAvatar.startsWith('data:') || profileAvatar.startsWith('blob:')) {
+            setAvatarUrl(profileAvatar);
+            return;
+          }
+
+          if (profileAvatar.startsWith('http')) {
+            setAvatarUrl(profileAvatar);
+            return;
+          }
+
+          // Otherwise try to get signed URL
+          const { url } = await getSignedAvatarUrl(profileAvatar);
+          if (url) {
+            setAvatarUrl(url);
+            return;
+          }
+        }
+      }
+
+      // Fallback to user.avatar from auth (GitHub avatar, etc.)
       const raw = user.avatar;
       if (!raw) {
         setAvatarUrl(null);
@@ -44,36 +77,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
       }
 
       if (raw.startsWith('http')) {
-        if (raw.includes('/storage/v1/object/sign/avatars/')) {
-          setAvatarUrl(raw);
-          return;
-        }
-
-        if (raw.includes('/storage/v1/object/public/avatars/')) {
-          setAvatarUrl(raw);
-          return;
-        }
-
-        if (raw.includes('/storage/v1/object/') && raw.includes('/avatars/')) {
-          const match = raw.match(/\/storage\/v1\/object\/(?:public\/)?avatars\/([^?]+)/);
-          const fileName = match?.[1] ? decodeURIComponent(match[1]) : null;
-          if (fileName) {
-            const { url } = await getSignedAvatarUrl(fileName);
-            if (url) {
-              setAvatarUrl(url);
-              return;
-            }
-
-            setAvatarUrl(null);
-            return;
-          }
-        }
-
-        if (raw.includes('/storage/v1/object/avatars/')) {
-          setAvatarUrl(null);
-          return;
-        }
-
         setAvatarUrl(raw);
         return;
       }
@@ -83,7 +86,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, activePage, onNavigate,
     };
 
     resolveAvatar();
-  }, [user.avatar]);
+  }, [user.id, user.avatar]);
 
   // Get greeting based on time of day
   const getGreeting = (): string => {

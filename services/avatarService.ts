@@ -5,7 +5,9 @@ export const uploadAvatar = async (
   file: File
 ): Promise<{ path: string | null; error: string | null }> => {
   try {
-    const fileName = `${userId}/avatar.png`;
+    // Use the file's extension or default to .png
+    const ext = file.name.split('.').pop() || 'png';
+    const fileName = `${userId}/avatar.${ext}`;
 
     const { error } = await supabase.storage
       .from('avatars')

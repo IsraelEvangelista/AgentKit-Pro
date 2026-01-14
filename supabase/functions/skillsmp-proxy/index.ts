@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-skillsmp-key",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
       },
     });
   }
@@ -33,10 +33,14 @@ Deno.serve(async (req) => {
     const headers = new Headers();
     
     // 1. Authentication
-    const customKey = req.headers.get("x-skillsmp-key");
-    if (customKey) {
-        headers.set("Authorization", `Bearer ${customKey.replace('Bearer ', '')}`);
+    const apiKey = Deno.env.get("SKILLSMP_API_KEY");
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "Missing SKILLSMP_API_KEY" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
     }
+    headers.set("Authorization", `Bearer ${apiKey}`);
     
     // 2. Browser Masquerading
     headers.set("Content-Type", "application/json");

@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, ZoomIn, ZoomOut, Save, User as UserIcon, Mail, Calendar, Shield, Loader2, X } from 'lucide-react';
+import { Upload, Save, User as UserIcon, Mail, Calendar, Shield, Loader2, X, Trash2, KeyRound, Copy, RefreshCw, Link2 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
-import { uploadAvatar, getSignedAvatarUrl, getPublicAvatarUrl } from '../services/avatarService';
-import { User as UserType } from '../types';
+import { uploadAvatar, deleteAvatar, getSignedAvatarUrl, getPublicAvatarUrl } from '../services/avatarService';
+import { Skill, User as UserType } from '../types';
+import AvatarCropper from '../components/AvatarCropper';
+import { getStoredSkills } from '../services/skillsService';
 
 interface SettingsPageProps {
   user: UserType | null;
@@ -11,14 +13,25 @@ interface SettingsPageProps {
 type TabType = 'profile' | 'mcp';
 type ToastKind = 'success' | 'error';
 
+interface McpConnection {
+  id: string;
+  user_id: string;
+  name: string;
+  token_prefix: string;
+  allowed_skill_ids: string[];
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
   const [activeTab, setActiveTab] = useState<TabType>('profile');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [showCropper, setShowCropper] = useState(false);
+  const [selectedImageForCrop, setSelectedImageForCrop] = useState<string | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [avatarScale, setAvatarScale] = useState(1);
-  const [avatarPosition, setAvatarPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -26,13 +39,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
   const [role, setRole] = useState<string>('User');
   const [profileAvatarPathOrUrl, setProfileAvatarPathOrUrl] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: ToastKind; title: string; message?: string } | null>(null);
-  
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpConnection, setMcpConnection] = useState<McpConnection | null>(null);
+  const [mcpGeneratedToken, setMcpGeneratedToken] = useState<string | null>(null);
+  const [mcpEndpoint, setMcpEndpoint] = useState<string>('');
+  const [mcpScriptPath, setMcpScriptPath] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem('mcp_script_path') || './scripts/mcp/agentkit-mcp-stdio.js';
+    } catch {
+      return './scripts/mcp/agentkit-mcp-stdio.js';
+    }
+  });
+  const [mcpSkills, setMcpSkills] = useState<Skill[]>([]);
+  const [mcpAllowedSkillIds, setMcpAllowedSkillIds] = useState<Set<string>>(new Set());
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const dragStartPos = useRef({ x: 0, y: 0 });
   const avatarPreviewRef = useRef<string | null>(null);
-  const isUploadingRef = useRef(false);
   const toastTimerRef = useRef<number | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
 
@@ -43,6 +65,173 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
     }
     setToast({ kind, title, message });
     toastTimerRef.current = window.setTimeout(() => setToast(null), 3500);
+  };
+
+  const copyToClipboard = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast('success', 'Copiado', 'Conteúdo copiado para a área de transferência.');
+    } catch {
+      showToast('error', 'Falha ao copiar', 'Não foi possível copiar para a área de transferência.');
+    }
+  };
+
+  const sha256Hex = async (value: string) => {
+    const enc = new TextEncoder();
+    const data = enc.encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const bytes = Array.from(new Uint8Array(digest));
+    return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  const randomToken = () => {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const bin = String.fromCharCode(...Array.from(bytes));
+    const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    return `akp_${b64}`;
+  };
+
+  useEffect(() => {
+    setMcpEndpoint(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('mcp_script_path', mcpScriptPath);
+    } catch {
+    }
+  }, [mcpScriptPath]);
+
+  const loadMcpData = async () => {
+    if (!user?.id) return;
+    setMcpLoading(true);
+    try {
+      const { data: conn, error: connError } = await supabase
+        .from('mcp_connections')
+        .select('*')
+        .eq('user_id', user.id)
+        .is('revoked_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (connError && connError.code !== 'PGRST116') {
+        throw connError;
+      }
+
+      const connection = (conn as McpConnection | null) || null;
+      setMcpConnection(connection);
+
+      const skills = await getStoredSkills(user.id);
+      setMcpSkills(skills);
+
+      const allowedIds = new Set<string>((connection?.allowed_skill_ids || []).filter(Boolean));
+      setMcpAllowedSkillIds(allowedIds);
+    } catch (e: any) {
+      showToast('error', 'Falha ao carregar MCP', e?.message || 'Não foi possível carregar a configuração do MCP.');
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'mcp') return;
+    loadMcpData();
+  }, [activeTab, user?.id]);
+
+  const persistAllowedSkills = async (next: Set<string>) => {
+    if (!mcpConnection?.id) {
+      setMcpAllowedSkillIds(next);
+      return;
+    }
+    setMcpLoading(true);
+    try {
+      const allowed = Array.from(next);
+      const { data, error } = await supabase
+        .from('mcp_connections')
+        .update({ allowed_skill_ids: allowed })
+        .eq('id', mcpConnection.id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      setMcpConnection(data as McpConnection);
+      setMcpAllowedSkillIds(new Set<string>((data as McpConnection).allowed_skill_ids || []));
+      showToast('success', 'MCP atualizado', 'Skills ativas do MCP foram salvas.');
+    } catch (e: any) {
+      showToast('error', 'Falha ao salvar MCP', e?.message || 'Não foi possível salvar as skills do MCP.');
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleToggleMcpSkill = (skillId: string) => {
+    const next = new Set(mcpAllowedSkillIds);
+    if (next.has(skillId)) next.delete(skillId);
+    else next.add(skillId);
+    setMcpAllowedSkillIds(next);
+  };
+
+  const handleSaveMcpSkills = async () => {
+    await persistAllowedSkills(mcpAllowedSkillIds);
+  };
+
+  const handleCreateOrRotateMcpToken = async () => {
+    if (!user?.id) return;
+    setMcpLoading(true);
+    try {
+      const token = randomToken();
+      const tokenHash = await sha256Hex(token);
+      const tokenPrefix = token.slice(0, 12);
+
+      if (mcpConnection?.id) {
+        await supabase
+          .from('mcp_connections')
+          .update({ revoked_at: new Date().toISOString() })
+          .eq('id', mcpConnection.id);
+      }
+
+      const allowed = Array.from(mcpAllowedSkillIds);
+      const { data, error } = await supabase
+        .from('mcp_connections')
+        .insert({
+          user_id: user.id,
+          name: 'default',
+          token_hash: tokenHash,
+          token_prefix: tokenPrefix,
+          allowed_skill_ids: allowed,
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      setMcpConnection(data as McpConnection);
+      setMcpGeneratedToken(token);
+      showToast('success', 'Token gerado', 'Copie e guarde o token. Ele não será exibido novamente.');
+    } catch (e: any) {
+      showToast('error', 'Falha ao gerar token', e?.message || 'Não foi possível gerar o token do MCP.');
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleRevokeMcpToken = async () => {
+    if (!mcpConnection?.id) return;
+    setMcpLoading(true);
+    try {
+      const { error } = await supabase
+        .from('mcp_connections')
+        .update({ revoked_at: new Date().toISOString() })
+        .eq('id', mcpConnection.id);
+      if (error) throw error;
+      setMcpConnection(null);
+      setMcpGeneratedToken(null);
+      showToast('success', 'Token revogado', 'A conexão MCP foi revogada.');
+    } catch (e: any) {
+      showToast('error', 'Falha ao revogar token', e?.message || 'Não foi possível revogar o token.');
+    } finally {
+      setMcpLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -170,10 +359,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
     avatarPreviewRef.current = avatarPreview;
   }, [avatarPreview]);
 
-  useEffect(() => {
-    isUploadingRef.current = isUploading;
-  }, [isUploading]);
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -185,158 +370,66 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
         showToast('error', 'File too large', 'File size must be less than 5MB.');
         return;
       }
-      setAvatarFile(file);
+
       const reader = new FileReader();
       reader.onloadend = () => {
-        if (previewObjectUrlRef.current) {
-          URL.revokeObjectURL(previewObjectUrlRef.current);
-          previewObjectUrlRef.current = null;
-        }
-        setAvatarPreview(reader.result as string);
-        setAvatarScale(1.2);
-        setAvatarPosition({ x: 0, y: 0 });
+        setSelectedImageForCrop(reader.result as string);
+        setShowCropper(true);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const clampPosition = (x: number, y: number, scale: number) => {
-    const rect = editorRef.current?.getBoundingClientRect();
-    if (!rect) return { x, y };
+  const handleCropComplete = async (croppedAreaPixels: any) => {
+    if (!user || !selectedImageForCrop) return;
 
-    const radius = rect.width / 2;
-    const maxOffset = radius * (scale - 1);
-
-    return {
-      x: Math.max(-maxOffset, Math.min(maxOffset, x)),
-      y: Math.max(-maxOffset, Math.min(maxOffset, y)),
-    };
-  };
-
-  const handleZoomIn = () => {
-    setAvatarScale((prev) => {
-      const next = Math.min(prev + 0.1, 3);
-      setAvatarPosition((p) => clampPosition(p.x, p.y, next));
-      return next;
-    });
-  };
-
-  const handleZoomOut = () => {
-    setAvatarScale((prev) => {
-      const next = Math.max(prev - 0.1, 1);
-      setAvatarPosition((p) => clampPosition(p.x, p.y, next));
-      return next;
-    });
-  };
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (!avatarPreview || isUploading) return;
-    setIsDragging(true);
-    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-    dragStartPos.current = { x: e.clientX - avatarPosition.x, y: e.clientY - avatarPosition.y };
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
-    const newX = e.clientX - dragStartPos.current.x;
-    const newY = e.clientY - dragStartPos.current.y;
-    const clamped = clampPosition(newX, newY, avatarScale);
-    setAvatarPosition(clamped);
-  };
-
-  const handlePointerUp = () => {
-    setIsDragging(false);
-  };
-
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-
-    const onWheel = (e: WheelEvent) => {
-      if (!avatarPreviewRef.current || isUploadingRef.current) return;
-      e.preventDefault();
-      const direction = e.deltaY > 0 ? -1 : 1;
-      setAvatarScale((prev) => {
-        const next = Math.max(1, Math.min(3, prev + direction * 0.1));
-        setAvatarPosition((p) => clampPosition(p.x, p.y, next));
-        return next;
-      });
-    };
-
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
-
-  const exportCroppedAvatar = async (): Promise<Blob | null> => {
-    if (!avatarPreview || !editorRef.current) return null;
-
-    let imgSrc = avatarPreview;
-    
-    const img = new Image();
-    
-    if (avatarFile) {
-      imgSrc = URL.createObjectURL(avatarFile);
-    }
-    
-    img.crossOrigin = 'anonymous';
-    img.src = imgSrc;
-
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Failed to load image'));
-    });
-
-    const outputSize = 512;
-    const rect = editorRef.current.getBoundingClientRect();
-    const factor = rect.width ? outputSize / rect.width : 2;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = outputSize;
-    canvas.height = outputSize;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-
-    const coverScale = Math.max(outputSize / img.width, outputSize / img.height);
-    const baseW = img.width * coverScale;
-    const baseH = img.height * coverScale;
-
-    const userScale = avatarScale;
-    const drawW = baseW * userScale;
-    const drawH = baseH * userScale;
-
-    const dx = avatarPosition.x * factor;
-    const dy = avatarPosition.y * factor;
-
-    const x = (outputSize - drawW) / 2 + dx;
-    const y = (outputSize - drawH) / 2 + dy;
-
-    ctx.clearRect(0, 0, outputSize, outputSize);
-    ctx.drawImage(img, x, y, drawW, drawH);
-
-    if (avatarFile) {
-      URL.revokeObjectURL(imgSrc);
-    }
-
-    return await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/png', 0.92);
-    });
-  };
-
-  const handleUploadAvatar = async () => {
-    if (!user) return;
-    
     setIsUploading(true);
     try {
-      const blob = await exportCroppedAvatar();
-      if (!blob) {
-        showToast('error', 'Falha no upload do avatar', 'Não foi possível processar a imagem do avatar.');
-        setIsUploading(false);
-        return;
+      // Load image
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = selectedImageForCrop;
+      });
+
+      // Create canvas with crop area dimensions
+      const canvas = document.createElement('canvas');
+      canvas.width = croppedAreaPixels.width;
+      canvas.height = croppedAreaPixels.height;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error('Failed to get canvas context');
       }
 
-      const croppedFile = new File([blob], 'avatar.png', { type: 'image/png' });
+      // Draw image to canvas
+      ctx.drawImage(
+        img,
+        croppedAreaPixels.x,
+        croppedAreaPixels.y,
+        croppedAreaPixels.width,
+        croppedAreaPixels.height,
+        0,
+        0,
+        croppedAreaPixels.width,
+        croppedAreaPixels.height
+      );
+
+      // Convert to blob using WebP format
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), 'image/webp');
+      });
+
+      if (!blob || blob.size === 0) {
+        throw new Error('Failed to create blob or blob is empty');
+      }
+
+      const croppedFile = new File([blob], 'avatar.webp', { type: 'image/webp' });
       const { path, error } = await uploadAvatar(user.id, croppedFile);
-      
+
       if (error) {
         if (error.toLowerCase().includes('bucket not found')) {
           showToast('error', 'Falha no upload do avatar', 'Bucket "avatars" não existe no Storage do Supabase.');
@@ -347,17 +440,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
         return;
       }
 
-      let avatarUrlToStore = path;
-      try {
-        const { data: bucketData, error: bucketError } = await supabase.storage.getBucket('avatars');
-        if (!bucketError && bucketData?.public) {
-          const { url: publicUrl } = getPublicAvatarUrl(path);
-          if (publicUrl) {
-            avatarUrlToStore = publicUrl;
-          }
-        }
-      } catch {
-      }
+      // Use public URL for display
+      const { url: publicUrl } = getPublicAvatarUrl(path);
+      const avatarUrlToStore = publicUrl || path;
 
       const { error: updateError } = await supabase
         .from('profiles')
@@ -370,29 +455,86 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
         return;
       }
 
+      // Create blob URL for immediate preview
       if (previewObjectUrlRef.current) {
         URL.revokeObjectURL(previewObjectUrlRef.current);
         previewObjectUrlRef.current = null;
       }
       previewObjectUrlRef.current = URL.createObjectURL(blob);
 
+      // Update UI
+      setShowCropper(false);
+      setSelectedImageForCrop(null);
       setAvatarPreview(previewObjectUrlRef.current);
-      setProfileAvatarPathOrUrl(avatarUrlToStore);
-      setAvatarFile(null);
-      setIsDragging(false);
-      setAvatarScale(1);
-      setAvatarPosition({ x: 0, y: 0 });
       setIsUploading(false);
       showToast('success', 'Avatar salvo', 'Seu avatar foi atualizado.');
     } catch (e: any) {
       showToast('error', 'Falha no upload do avatar', e?.message || 'Não foi possível enviar o avatar.');
       setIsUploading(false);
+      setShowCropper(false);
+    }
+  };
+
+  const handleCropCancel = () => {
+    setShowCropper(false);
+    setSelectedImageForCrop(null);
+  };
+
+  const handleResetAvatar = async () => {
+    if (!user) return;
+
+    setIsDeleting(true);
+    try {
+      // Delete from storage
+      const currentAvatarPath = profileAvatarPathOrUrl;
+
+      if (currentAvatarPath) {
+        // Extract filename from URL or path
+        let fileName = currentAvatarPath;
+        if (currentAvatarPath.startsWith('http')) {
+          const match = currentAvatarPath.match(/\/avatars\/([^?/]+)/);
+          if (match?.[1]) {
+            fileName = decodeURIComponent(match[1]);
+          } else if (currentAvatarPath.includes('/storage/v1/object/public/avatars/')) {
+            const publicMatch = currentAvatarPath.match(/\/public\/avatars\/(.+)$/);
+            if (publicMatch?.[1]) {
+              fileName = decodeURIComponent(publicMatch[1]);
+            }
+          }
+        }
+
+        // Try to delete from storage (might fail if file doesn't exist, but that's ok)
+        if (fileName && fileName !== currentAvatarPath) {
+          await deleteAvatar(fileName);
+        }
+      }
+
+      // Clear from database
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: null })
+        .eq('id', user.id);
+
+      if (updateError) {
+        showToast('error', 'Falha ao remover avatar', updateError.message);
+        setIsDeleting(false);
+        return;
+      }
+
+      setAvatarPreview(null);
+      setProfileAvatarPathOrUrl(null);
+      setIsDeleting(false);
+      showToast('success', 'Avatar removido', 'Seu avatar foi removido com sucesso.');
+    } catch (e: any) {
+      // Even if storage deletion fails, we cleared the database
+      showToast('success', 'Avatar removido', 'Seu avatar foi removido com sucesso.');
+      setIsDeleting(false);
     }
   };
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    
+
     setIsSaving(true);
     try {
       const { error } = await supabase
@@ -412,13 +554,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
       showToast('error', 'Falha ao salvar', e?.message || 'Não foi possível salvar o perfil.');
       setIsSaving(false);
     }
-  };
-
-  const handleResetAvatar = () => {
-    setProfileAvatarPathOrUrl(user?.avatar || null);
-    setAvatarFile(null);
-    setAvatarScale(1);
-    setAvatarPosition({ x: 0, y: 0 });
   };
 
   const formatDate = (dateStr: string) => {
@@ -502,6 +637,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
         </div>
       )}
 
+      {/* Avatar Cropper Modal */}
+      {showCropper && selectedImageForCrop && (
+        <AvatarCropper
+          image={selectedImageForCrop}
+          onCropComplete={handleCropComplete}
+          onCancel={handleCropCancel}
+          onConfirm={() => {}}
+        />
+      )}
+
       {/* Tab Content */}
       <div className="mt-6">
         {activeTab === 'profile' ? (
@@ -515,26 +660,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
 
               <div className="flex-1 flex flex-col">
                 <div className="flex-1 flex items-center justify-center">
-                  <div
-                    ref={editorRef}
-                    className="relative w-64 h-64 bg-cyber-dark rounded-full overflow-hidden border border-cyber-border select-none touch-none mx-auto"
-                    onPointerDown={handlePointerDown}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onPointerCancel={handlePointerUp}
-                    style={{ touchAction: 'none' }}
-                  >
+                  <div className="relative w-64 h-64 bg-cyber-dark rounded-full overflow-hidden border border-cyber-border mx-auto">
                     {avatarPreview ? (
                       <img
-                        ref={imgRef}
                         src={avatarPreview}
                         alt="Avatar preview"
-                        className={`absolute inset-0 w-full h-full object-cover ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                        draggable={false}
-                        style={{
-                          transform: `translate(${avatarPosition.x}px, ${avatarPosition.y}px) scale(${avatarScale})`,
-                          transformOrigin: 'center center',
-                        }}
+                        className="w-full h-full object-cover"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-600">
@@ -544,68 +675,47 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-3">
+                <div className="mt-6 space-y-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                    <span className="text-xs text-gray-500">
+                      {avatarPreview ? 'Avatar atual carregado' : 'Nenhum avatar definido'}
+                    </span>
+                    {avatarPreview && (
                       <button
-                        onClick={handleZoomOut}
-                        disabled={!avatarPreview || isUploading}
-                        className="p-2 bg-cyber-dark border border-cyber-border rounded hover:bg-cyber-border disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        title="Zoom Out"
+                        onClick={handleResetAvatar}
+                        disabled={isDeleting}
+                        className="flex items-center space-x-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
-                        <ZoomOut size={18} />
+                        {isDeleting ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <>
+                            <Trash2 size={14} />
+                            <span>Remover</span>
+                          </>
+                        )}
                       </button>
-                      <span className="text-xs text-gray-500 font-mono">{Math.round(avatarScale * 100)}%</span>
-                      <button
-                        onClick={handleZoomIn}
-                        disabled={!avatarPreview || isUploading}
-                        className="p-2 bg-cyber-dark border border-cyber-border rounded hover:bg-cyber-border disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        title="Zoom In"
-                      >
-                        <ZoomIn size={18} />
-                      </button>
-                    </div>
-                    <button
-                      onClick={handleResetAvatar}
-                      disabled={!avatarPreview || isUploading}
-                      className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Reset
-                    </button>
+                    )}
                   </div>
 
                   <div className="flex space-x-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                    disabled={isUploading}
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white py-2 rounded-lg flex items-center justify-center text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Upload size={18} className="mr-2" />
-                    {isUploading ? 'Uploading...' : 'Select Image'}
-                  </button>
-                  <button
-                    onClick={handleUploadAvatar}
-                    disabled={!avatarPreview || isUploading}
-                    className="flex-1 bg-cyber-blue hover:bg-blue-600 text-white py-2 rounded-lg flex items-center justify-center text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_4px_14px_0_rgba(45,96,255,0.39)]"
-                  >
-                    {isUploading ? (
-                      <Loader2 size={18} className="animate-spin" />
-                    ) : (
-                      <>
-                        <Save size={18} className="mr-2" />
-                        Save Avatar
-                      </>
-                    )}
-                  </button>
-                </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      disabled={isUploading || showCropper}
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading || showCropper}
+                      className="flex-1 bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white py-3 rounded-lg flex items-center justify-center text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Upload size={18} className="mr-2" />
+                      Selecionar Imagem
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -671,13 +781,283 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user }) => {
             </div>
           </div>
         ) : (
-          <div className="bg-cyber-panel/50 border border-cyber-border rounded-xl p-12 text-center">
-            <div className="w-20 h-20 mx-auto mb-6 bg-cyber-dark rounded-lg flex items-center justify-center">
-              <Shield size={40} className="text-cyber-cyan" />
+          <div className="space-y-6">
+            <div className="bg-cyber-panel/50 border border-cyber-border rounded-xl p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center">
+                    <KeyRound size={18} className="mr-2 text-cyber-cyan" />
+                    MCP STDIO
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Exponha suas Skills selecionadas via Model Context Protocol (Tools) para IDEs/CLIs.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCreateOrRotateMcpToken}
+                    disabled={mcpLoading}
+                    className="bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white px-4 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    <RefreshCw size={14} className={`mr-2 ${mcpLoading ? 'animate-spin' : ''}`} />
+                    {mcpConnection ? 'ROTACIONAR TOKEN' : 'GERAR TOKEN'}
+                  </button>
+                  {mcpConnection && (
+                    <button
+                      onClick={handleRevokeMcpToken}
+                      disabled={mcpLoading}
+                      className="bg-cyber-dark border border-red-500/40 hover:bg-red-500/10 text-red-300 px-4 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      REVOGAR
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-cyber-dark/60 border border-cyber-border rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-mono uppercase text-gray-400">Conexão</p>
+                    <button
+                      onClick={() => copyToClipboard(mcpEndpoint)}
+                      className="text-gray-400 hover:text-white transition-colors text-xs flex items-center"
+                      type="button"
+                    >
+                      <Link2 size={14} className="mr-1" />
+                      Copiar endpoint
+                    </button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">Endpoint</span>
+                      <span className="text-xs text-white font-mono truncate max-w-[260px]">{mcpEndpoint}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">Token</span>
+                      <span className="text-xs text-white font-mono">
+                        {mcpGeneratedToken ? `${mcpGeneratedToken.slice(0, 8)}…` : mcpConnection ? `${mcpConnection.token_prefix}…` : 'não configurado'}
+                      </span>
+                    </div>
+                    {mcpGeneratedToken && (
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-cyber-cyan font-mono">TOKEN GERADO (COPIE AGORA)</span>
+                          <button
+                            onClick={() => copyToClipboard(mcpGeneratedToken)}
+                            className="text-cyber-cyan hover:text-white transition-colors text-xs flex items-center"
+                            type="button"
+                          >
+                            <Copy size={14} className="mr-1" />
+                            Copiar token
+                          </button>
+                        </div>
+                        <div className="bg-cyber-black border border-cyber-border rounded-lg p-3 text-xs font-mono text-white break-all">
+                          {mcpGeneratedToken}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-cyber-dark/60 border border-cyber-border rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-mono uppercase text-gray-400">Config MCP</p>
+                    <div className="flex gap-3">
+                      <button
+                      onClick={() => {
+                        const tokenPlaceholder = mcpGeneratedToken || '<SEU_TOKEN>';
+                        const snippet = JSON.stringify(
+                          {
+                            mcpServers: {
+                              'agentkit-pro': {
+                                command: 'node',
+                                args: [mcpScriptPath],
+                                env: {
+                                  AGENTKIT_MCP_ENDPOINT: mcpEndpoint,
+                                  AGENTKIT_MCP_TOKEN: tokenPlaceholder,
+                                },
+                              },
+                            },
+                          },
+                          null,
+                          2
+                        );
+                        copyToClipboard(snippet);
+                      }}
+                      className="text-gray-400 hover:text-white transition-colors text-xs flex items-center"
+                      type="button"
+                    >
+                      <Copy size={14} className="mr-1" />
+                      Copiar config
+                    </button>
+                      <button
+                        onClick={() => {
+                          const tokenPlaceholder = mcpGeneratedToken || '<SEU_TOKEN>';
+                          const snippet = JSON.stringify(
+                            {
+                              mcpServers: {
+                                'agentkit-pro': {
+                                  command: 'npx',
+                                  args: ['-y', '--package', '@agentkit-pro/mcp', 'agentkit-pro-mcp'],
+                                  env: {
+                                    AGENTKIT_MCP_ENDPOINT: mcpEndpoint,
+                                    AGENTKIT_MCP_TOKEN: tokenPlaceholder,
+                                  },
+                                },
+                              },
+                            },
+                            null,
+                            2
+                          );
+                          copyToClipboard(snippet);
+                        }}
+                        className="text-gray-400 hover:text-white transition-colors text-xs flex items-center"
+                        type="button"
+                      >
+                        <Copy size={14} className="mr-1" />
+                        Copiar config (npx)
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <label className="block text-[10px] font-mono uppercase text-gray-400 mb-2">Script (args[0])</label>
+                    <input
+                      type="text"
+                      value={mcpScriptPath}
+                      onChange={(e) => setMcpScriptPath(e.target.value)}
+                      className="w-full bg-cyber-black border border-cyber-border rounded-lg py-2 px-3 text-white text-xs font-mono focus:border-cyber-cyan focus:ring-1 focus:ring-cyber-cyan outline-none transition-all"
+                      placeholder="D:\\...\\AgentKit-Pro\\scripts\\mcp\\agentkit-mcp-stdio.js"
+                    />
+                    <div className="mt-2 text-[10px] text-gray-400">
+                      No TRAE, use caminho absoluto (args relativo pode falhar).
+                    </div>
+                  </div>
+                  <div className="mt-2 bg-cyber-black border border-cyber-border rounded-lg p-3 text-xs font-mono text-gray-200 whitespace-pre-wrap">
+                    {JSON.stringify(
+                      {
+                        mcpServers: {
+                          'agentkit-pro': {
+                            command: 'node',
+                            args: [mcpScriptPath],
+                            env: {
+                              AGENTKIT_MCP_ENDPOINT: mcpEndpoint,
+                              AGENTKIT_MCP_TOKEN: mcpGeneratedToken || '<SEU_TOKEN>',
+                            },
+                          },
+                        },
+                      },
+                      null,
+                      2
+                    )}
+                  </div>
+                  <div className="mt-3 bg-cyber-black border border-cyber-border rounded-lg p-3 text-xs font-mono text-gray-200 whitespace-pre-wrap">
+                    {JSON.stringify(
+                      {
+                        mcpServers: {
+                          'agentkit-pro': {
+                            command: 'npx',
+                            args: ['-y', '--package', '@agentkit-pro/mcp', 'agentkit-pro-mcp'],
+                            env: {
+                              AGENTKIT_MCP_ENDPOINT: mcpEndpoint,
+                              AGENTKIT_MCP_TOKEN: mcpGeneratedToken || '<SEU_TOKEN>',
+                            },
+                          },
+                        },
+                      },
+                      null,
+                      2
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <h3 className="text-2xl font-bold text-white mb-3">MCP Configuration</h3>
-            <p className="text-gray-400 mb-2">MCP (Model Context Protocol) settings are under development.</p>
-            <p className="text-sm text-cyber-cyan font-mono">Coming Soon</p>
+
+            <div className="bg-cyber-panel/50 border border-cyber-border rounded-xl p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Skills Ativas no MCP</h3>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Somente as skills marcadas abaixo serão expostas pelas tools do MCP.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const next = new Set<string>(mcpSkills.map((s) => s.id));
+                      setMcpAllowedSkillIds(next);
+                    }}
+                    disabled={mcpLoading || mcpSkills.length === 0}
+                    className="bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                  >
+                    MARCAR TODAS
+                  </button>
+                  <button
+                    onClick={() => setMcpAllowedSkillIds(new Set())}
+                    disabled={mcpLoading || mcpSkills.length === 0}
+                    className="bg-cyber-dark border border-cyber-border hover:bg-cyber-border text-white px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                  >
+                    LIMPAR
+                  </button>
+                  <button
+                    onClick={handleSaveMcpSkills}
+                    disabled={mcpLoading || !mcpConnection}
+                    className="bg-cyber-cyan/20 border border-cyber-cyan/40 hover:bg-cyber-cyan/30 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                  >
+                    SALVAR
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 border border-cyber-border rounded-xl overflow-hidden">
+                {mcpLoading ? (
+                  <div className="p-6 text-center text-gray-400 text-sm flex items-center justify-center">
+                    <Loader2 size={18} className="animate-spin mr-2" />
+                    Carregando...
+                  </div>
+                ) : mcpSkills.length === 0 ? (
+                  <div className="p-6 text-center text-gray-400 text-sm">
+                    Nenhuma skill encontrada para sua conta.
+                  </div>
+                ) : (
+                  <div className="max-h-[420px] overflow-y-auto">
+                    {mcpSkills.map((s) => {
+                      const checked = mcpAllowedSkillIds.has(s.id);
+                      return (
+                        <label
+                          key={s.id}
+                          className="flex items-start gap-3 px-4 py-3 border-b border-cyber-border/60 hover:bg-cyber-border/20 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() => handleToggleMcpSkill(s.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm text-white font-bold truncate">{s.title}</p>
+                              <span className="text-[10px] font-mono text-gray-400 truncate max-w-[160px]">
+                                {s.category || 'Uncategorized'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-1">{s.description}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {!mcpConnection && (
+                <div className="mt-4 text-xs text-cyber-orange font-mono">
+                  Gere um token antes de salvar a lista de skills do MCP.
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
