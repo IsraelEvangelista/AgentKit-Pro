@@ -22,7 +22,8 @@
 - **`LoginPage.tsx`** - Autenticação via GitHub OAuth
 
 ### Componentes
-- **`Layout.tsx`** - Layout principal com sidebar responsiva e navegação
+- **`Layout.tsx`** - Layout principal com sidebar responsiva, navegação e exibição de avatar
+- **`AvatarCropper.tsx`** - Modal de crop circular para ajuste de avatar com zoom e movimento
 - **`CategorySelector.tsx`** - Modal para seleção/criação de categorias de skills
 
 ## Sistema de Roteamento
@@ -57,6 +58,70 @@
 - **FK `skills.category_id`**: Referência para categoria selecionada
 - **RLS Policies:** Usuários podem ver todas as categorias, mas só modificar as próprias
 
+## Sistema de Avatar/Profile Photo
+
+### Componentes de Avatar
+- **`AvatarCropper.tsx`**: Modal para crop circular de avatar
+  - Usa `react-easy-crop` para crop interativo
+  - Suporte a zoom (min: 0.5x, max: 3x)
+  - Movimentação livre dentro da área circular
+  - **IMPORTANTE:** `restrictPosition` está REMOVIDO (usa default=true) para evitar coordenadas negativas
+
+- **`Layout.tsx`**: Exibição do avatar na sidebar
+  - Busca avatar da tabela `profiles.avatar_url` (prioridade)
+  - Fallback para `user.avatar` do Supabase Auth (GitHub avatar)
+
+- **`SettingsPage.tsx`**: Página de configuração com upload de avatar
+
+### Services
+- **`services/avatarService.ts`**:
+  - `uploadAvatar()` - Upload de arquivo para Supabase Storage
+  - `deleteAvatar()` - Remoção de arquivo do Storage
+  - `getSignedAvatarUrl()` - Gera URL assinada para avatares privados
+  - `getPublicAvatarUrl()` - Retorna URL pública do bucket avatars
+
+### Banco de Dados (Storage)
+- **Bucket `avatars`**: Armazena fotos de perfil dos usuários
+  - **Público:** `public = true` (configurado via migration)
+  - **RLS Policy:** "Anyone can view avatars" (acesso público leitura)
+  - **Estrutura:** `avatars/{userId}/avatar.{ext}`
+
+### Tabela `profiles`
+```sql
+avatar_url TEXT -- URL pública do avatar no Supabase Storage
+```
+
+### Fluxo de Upload de Avatar
+1. Usuário seleciona arquivo de imagem (input type="file")
+2. FileReader converte para data URL
+3. AvatarCropper abre modal com `react-easy-crop`
+4. Usuário ajusta zoom e posição
+5. Ao confirmar, canvas faz crop da área selecionada
+6. Blob convertido para WebP (melhor compressão)
+7. Upload para Supabase Storage (`avatars/{userId}/avatar.webp`)
+8. URL pública gerada e salva em `profiles.avatar_url`
+9. Preview atualizado com blob URL local
+10. Sidebar atualizada automaticamente via useEffect
+
+### Configurações Críticas do react-easy-crop
+```typescript
+<Cropper
+  image={image}
+  crop={crop}
+  zoom={zoom}
+  aspect={1}
+  cropShape="round"
+  // NÃO usar restrictPosition={false} - causa coordenadas negativas
+  minZoom={0.5}
+  maxZoom={3}
+  zoomWithScroll={true}
+  showGrid={false}
+  onCropChange={setCrop}
+  onZoomChange={setZoom}
+  onCropComplete={onCropComplete}
+/>
+```
+
 ## Estrutura do Projeto
 
 ### Organização de Pastas
@@ -90,9 +155,11 @@ AgentKit-Pro/
 5. `20241211_policies_update.sql` - Atualização de RLS policies
 6. `20250113_create_categories_table.sql` - Sistema de categorias
 7. `20250113_add_category_functions.sql` - Funções de gestão de categorias
-8. `create_avatars_bucket.sql` - Bucket de avatares
-9. `dev_mock_policy.sql` - Policies de desenvolvimento
-10. `skills_zip_tree.sql` - Suporte a ZIP com árvore de arquivos
+8. `create_avatars_bucket.sql` - Bucket de avatares (privado por padrão)
+9. `20260113_make_avatars_bucket_public.sql` - Torna bucket avatars público e atualiza policies
+10. `dev_mock_policy.sql` - Policies de desenvolvimento
+11. `skills_zip_tree.sql` - Suporte a ZIP com árvore de arquivos
+12. `20260114_create_mcp_connections.sql` - Tabela para conexões MCP com tokens por usuário
 
 **Ambiente de Desenvolvimento:**
 - `dev/dev_policy.sql` - Policies permissivas para desenvolvimento local
@@ -120,6 +187,36 @@ AgentKit-Pro/
 6. Indexação completa da árvore de arquivos
 7. Upload do ZIP para Supabase Storage
 8. Salvamento no banco com metadados + categoria
+
+## Integração MCP (AgentKit-Pro)
+
+### Objetivo
+- Expor skills do AgentKit-Pro para IDEs/CLIs via MCP STDIO, permitindo leitura de `SKILL.md` e anexos.
+
+### Tools MCP
+1. Listar Categorias
+2. Listar Nome das Skills
+3. Listar Descrição da Skill escolhida
+4. Carregar Skill (`SKILL.md` + anexos)
+
+### Autenticação (token por usuário)
+- Tokens são gerados na UI (aba MCP) e exibidos somente no momento da geração.
+- No Supabase, o token é armazenado como hash (SHA-256) + prefixo para identificação.
+- A IDE/CLI do usuário guarda o token (config `mcpServers.env.AGENTKIT_MCP_TOKEN`).
+- O backend valida o token via tabela `mcp_connections` e bloqueia tokens revogados.
+
+### Backend MCP
+- Rotas em `api/mcp/*` fazem a leitura de skills/anexos no Supabase e aplicam o filtro `allowed_skill_ids` da conexão.
+- Em dev, o endpoint MCP deve apontar para a origem do app (ex.: `http://localhost:8080`) e o Vite encaminha `/api/mcp/*` para o proxy local (porta 3001).
+
+### Servidor MCP (STDIO)
+- Script: `scripts/mcp/agentkit-mcp-stdio.js`
+- Compatibilidade de schema: manter `inputSchema` estrito (`type: "object"`, `properties` explícito, `required` como array) para evitar incompatibilidade com alguns modelos.
+
+### Distribuição do MCP (produção)
+- Desenvolvimento local pode exigir `args[0]` com caminho absoluto no Windows (caminhos relativos podem falhar dependendo do diretório de trabalho da IDE).
+- Para produção, preferir publicação como pacote npm (execução via `npx`) para não depender de path local do projeto.
+- Subpacote pronto para publicação: `scripts/mcp/package.json` com bin `agentkit-pro-mcp`.
 
 ## Convenções de Código
 
@@ -160,6 +257,19 @@ supabase db push
 
 ## Histórico de Atualizações (Sessão Atual)
 
+### Jan 2025 - Avatar/Profile Photo System
+- ✅ **AvatarCropper Component:** Modal de crop circular usando `react-easy-crop`
+  - Suporte a zoom (scroll do mouse ou botões)
+  - Movimentação livre dentro da área circular
+  - **FIX CRÍTICO:** `restrictPosition` removido para evitar coordenadas negativas
+- ✅ **Upload para Supabase Storage:**
+  - Arquivo salvo como `avatar.webp` (melhor compressão)
+  - URL pública gerada automaticamente
+  - Extensão dinâmica baseada no tipo do arquivo
+- ✅ **Layout.tsx Atualizado:** Sidebar exibe avatar do perfil com prioridade sobre avatar do GitHub
+- ✅ **Bucket avatars:** Configurado como público via SQL (`20260113_make_avatars_bucket_public.sql`)
+- ✅ **Delete functionality:** Botão para remover avatar do Storage e banco
+
 ### Jan 2025 - Refactoramento e Organização
 - ✅ **Renomeação:** "Catalog & Scrape" → "Search"
 - ✅ **Hash Routing:** Sistema de roteamento com URLs dinâmicas (`#/dashboard`, `#/search`)
@@ -174,9 +284,12 @@ supabase db push
 - ✅ Modal "View Details" com preview de arquivos
 - ✅ Integração completa com Supabase Storage
 
-## Pendências e TODOs Atuais
-- Implementar link para Política de Privacidade do aplicativo
-- Implementar link para Termos de Serviço do aplicativo
+### Jan 2026 - MCP (STDIO) e Tokens por Usuário
+- ✅ Aba MCP em `SettingsPage.tsx` com geração/rotação de token e seleção de skills ativas (allowlist).
+- ✅ Migração `20260114_create_mcp_connections.sql` para conexões MCP por usuário (token hash/prefix + RLS).
+- ✅ Servidor MCP STDIO em `scripts/mcp/agentkit-mcp-stdio.js` com 4 tools.
+- ✅ Rotas backend MCP em `api/mcp/*` com validação por Bearer token.
+- ✅ Subpacote npm do MCP em `scripts/mcp/` para distribuição via `npx` (pendente publicar).
 
 ## Links Rápidos
 

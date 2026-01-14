@@ -12,7 +12,6 @@ import { SkillsmpSearchResult, ScrapeResult } from '../types';
 
 export const searchSkills = async (query: string): Promise<SkillsmpSearchResult[]> => {
     // Debug Log
-    const apiKey = import.meta.env.VITE_SKILLSMP_API_KEY;
     console.log('[SkillsMP] Search Query:', query);
     
     // AI Search uses GET with query parameter 'q'
@@ -40,11 +39,7 @@ export const getSkillDetails = async (skillId: string): Promise<any> => {
     // Ideally we should create api/skills/[id].js if needed.
     // For now, let's assume the search provides enough data or use search logic.
     // NOTE: The user's prompt implies we fixed search. Details might not be used heavily yet.
-    const response = await fetch(`${PROXY_BASE}/skills/${skillId}`, {
-        headers: {
-            'Authorization': `Bearer ${import.meta.env.VITE_SKILLSMP_API_KEY}`
-        }
-    });
+    const response = await fetch(`${PROXY_BASE}/skills/${encodeURIComponent(skillId)}`);
 
     if (!response.ok) throw new Error(`Failed to fetch skill details: ${response.statusText}`);
     return await response.json();

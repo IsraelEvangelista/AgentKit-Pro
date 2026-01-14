@@ -1,7 +1,6 @@
 import { gotScraping } from 'got-scraping';
 
 export default async function handler(req, res) {
-  // CORS for Vercel
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -15,19 +14,22 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { q } = req.query;
-  const targetUrl = `https://skillsmp.com/api/v1/skills/ai-search?q=${encodeURIComponent(q || '')}`;
+  const { id } = req.query;
+  if (!id || typeof id !== 'string') {
+    res.status(400).json({ error: 'Missing skill id' });
+    return;
+  }
 
-  console.log(`[Vercel Search] Forwarding to: ${targetUrl}`);
+  const apiKey = process.env.SKILLSMP_API_KEY;
+  if (!apiKey) {
+    console.error('[Vercel] SKILLSMP_API_KEY environment variable is required but not set.');
+    res.status(500).json({ error: 'Server configuration error' });
+    return;
+  }
+
+  const targetUrl = `https://skillsmp.com/api/v1/skills/${encodeURIComponent(id)}`;
 
   try {
-    const apiKey = process.env.SKILLSMP_API_KEY;
-    if (!apiKey) {
-      console.error('[Vercel] SKILLSMP_API_KEY environment variable is required but not set.');
-      res.status(500).json({ error: 'Server configuration error' });
-      return;
-    }
-
     const { body, statusCode } = await gotScraping({
       url: targetUrl,
       method: 'GET',
@@ -42,7 +44,7 @@ export default async function handler(req, res) {
 
     res.status(statusCode).json(body);
   } catch (error) {
-    console.error('[Vercel Search Error]', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 }
+

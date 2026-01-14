@@ -1,0 +1,17 @@
+{
+  "name": "@agentkit-pro/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AgentKit-Pro MCP STDIO server",
+  "license": "UNLICENSED",
+  "bin": {
+    "agentkit-pro-mcp": "./agentkit-mcp-stdio.js"
+  },
+  "files": [
+    "agentkit-mcp-stdio.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
+

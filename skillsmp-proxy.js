@@ -5,6 +5,10 @@ import { gotScraping } from 'got-scraping';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import mcpCategories from './api/mcp/categories.js';
+import mcpSkills from './api/mcp/skills.js';
+import mcpSkillDescription from './api/mcp/skill-description.js';
+import mcpLoadSkill from './api/mcp/load-skill.js';
 
 // ESM fix for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -23,6 +27,16 @@ const API_BASE_URL = "https://skillsmp.com/api/v1";
 
 console.log("Starting SkillsMP Local Proxy (v5 - Vercel Compatible)...");
 
+const getSkillsmpApiKey = () => {
+    const apiKey = process.env.SKILLSMP_API_KEY;
+
+    if (!apiKey) {
+        console.error('[Proxy] SKILLSMP_API_KEY environment variable is required but not set.');
+    }
+
+    return apiKey;
+};
+
 // --- SPECIFIC API ROUTES (Matching api/ folder structure) ---
 
 // 1. Download Proxy Handler (/api/download)
@@ -38,9 +52,10 @@ app.get('/api/download', async (req, res) => {
         const urlObj = new URL(fileUrl);
         const isGithub = urlObj.hostname === 'github.com' || urlObj.hostname === 'codeload.github.com';
         const isSkillsmp = urlObj.hostname.endsWith('skillsmp.com');
+        const apiKey = getSkillsmpApiKey();
         const authorizationHeader =
-          isSkillsmp && process.env.VITE_SKILLSMP_API_KEY
-            ? `Bearer ${process.env.VITE_SKILLSMP_API_KEY}`
+          isSkillsmp && apiKey
+            ? `Bearer ${apiKey}`
             : undefined;
 
         const headers = {
@@ -123,7 +138,13 @@ app.get('/api/github-api', async (req, res) => {
     }
 });
 
-// 4. General API Proxy Handler (/api/*)
+// 4. MCP API (local dev) - forwarded to Supabase with per-user token
+app.get('/api/mcp/categories', (req, res) => mcpCategories(req, res));
+app.get('/api/mcp/skills', (req, res) => mcpSkills(req, res));
+app.get('/api/mcp/skill-description', (req, res) => mcpSkillDescription(req, res));
+app.post('/api/mcp/load-skill', (req, res) => mcpLoadSkill(req, res));
+
+// 5. General API Proxy Handler (/api/*)
 // This catches /api/skills/ai-search etc.
 app.use('/api', async (req, res) => {
     const endpoint = req.url;
@@ -135,12 +156,18 @@ app.use('/api', async (req, res) => {
     console.log(`[Proxy] Forwarding: ${endpoint} -> ${targetUrl}`);
 
     try {
+        const apiKey = getSkillsmpApiKey();
+        if (!apiKey) {
+            res.status(500).json({ error: 'Missing SKILLSMP_API_KEY' });
+            return;
+        }
+
         const { body, statusCode } = await gotScraping({
             url: targetUrl,
             method: req.method,
             responseType: 'text',
             headers: {
-                'Authorization': `Bearer ${process.env.VITE_SKILLSMP_API_KEY}`,
+                'Authorization': `Bearer ${apiKey}`,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': 'https://skillsmp.com/',
                 'Accept': 'application/json, text/plain, */*',
